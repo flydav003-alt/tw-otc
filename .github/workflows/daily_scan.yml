@@ -53,26 +53,11 @@ jobs:
           OTC_CSV_PATH:     otc200.csv
         run: python otc_scanner.py
 
-      # 6. 只保留 index.html，不塞一堆日期檔
+      # 6. 把 output/ 資料夾推回倉庫（GitHub Pages 用）
       - name: 推送輸出檔到倉庫
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-
-          mkdir -p output
-
-          # 把今天的 HTML 改名為 index.html（固定網址，永遠是最新）
-          NEW_HTML=$(ls output/OTC_report_*.html 2>/dev/null | head -1)
-          if [ -n "$NEW_HTML" ]; then
-            mv "$NEW_HTML" output/index.html
-          fi
-
-          # 清掉帶日期的舊檔（從 Git 移除）
-          git rm -f output/OTC_report_*.html 2>/dev/null || true
-          git rm -f output/full_filtered_*.csv 2>/dev/null || true
-
-          # 只加入 index.html
-          git add output/index.html
-
-          git diff --cached --quiet || git commit -m "Update: 每日選股報告 $(date +'%Y-%m-%d')"
+          git add output/
+          git diff --cached --quiet || git commit -m "Auto: 選股報告 $(date +'%Y-%m-%d')"
           git push

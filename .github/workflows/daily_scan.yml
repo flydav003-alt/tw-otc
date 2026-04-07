@@ -1,0 +1,63 @@
+name: 上櫃選股系統 每日自動執行
+
+on:
+  # ── 每日台灣時間 18:00 自動觸發（UTC+8 → UTC 10:00）──
+  schedule:
+    - cron: '0 10 * * 1-5'   # 週一到週五（台灣股市交易日）
+
+  # ── 手動觸發（測試用）──
+  workflow_dispatch:
+
+jobs:
+  run-scanner:
+    runs-on: ubuntu-24.04        # 指定 Ubuntu 24.04，確保穩定
+
+    permissions:
+      contents: write            # 允許寫入倉庫（推送 output 資料夾）
+
+    steps:
+      # 1. 取出倉庫程式碼
+      - name: 取出程式碼
+        uses: actions/checkout@v4
+
+      # 2. 安裝中文字型（Ubuntu 24.04 的正確路徑）
+      - name: 安裝中文字型
+        run: |
+          sudo apt-get update -q
+          sudo apt-get install -y -q fonts-noto-cjk
+          fc-cache -fv
+
+      # 3. 設定 Python 3.11（穩定版，所有套件均相容）
+      - name: 設定 Python 3.11
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.11'
+          cache: 'pip'
+
+      # 4. 安裝 Python 套件
+      - name: 安裝 Python 套件
+        run: |
+          pip install --upgrade pip
+          pip install -r requirements.txt
+
+      # 5. 執行選股程式
+      - name: 執行選股系統
+        env:
+          FINMIND_TOKEN:    ${{ secrets.FINMIND_TOKEN }}
+          TELEGRAM_TOKEN:   ${{ secrets.TELEGRAM_TOKEN }}
+          TELEGRAM_CHAT_ID: ${{ secrets.TELEGRAM_CHAT_ID }}
+          GMAIL_USER:       ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASS:   ${{ secrets.GMAIL_APP_PASS }}
+          EMAIL_TO:         ${{ secrets.EMAIL_TO }}
+          GITHUB_PAGES_URL: ${{ secrets.GITHUB_PAGES_URL }}
+          OTC_CSV_PATH:     otc200.csv
+        run: python otc_scanner.py
+
+      # 6. 把 output/ 資料夾推回倉庫（GitHub Pages 用）
+      - name: 推送輸出檔到倉庫
+        run: |
+          git config user.name  "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add output/
+          git diff --cached --quiet || git commit -m "Auto: 選股報告 $(date +'%Y-%m-%d')"
+          git push

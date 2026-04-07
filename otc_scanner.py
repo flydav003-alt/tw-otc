@@ -65,7 +65,7 @@ TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GMAIL_USER      = os.environ.get("GMAIL_USER", "")
 GMAIL_APP_PASS  = os.environ.get("GMAIL_APP_PASS", "")
 EMAIL_TO        = os.environ.get("EMAIL_TO", "")
-GITHUB_PAGES_URL = os.environ.get("GITHUB_PAGES_URL", "")   # e.g. https://yourname.github.io/yourrepo
+GITHUB_PAGES_URL = os.environ.get("REPORT_URL", "")   # e.g. https://yourname.github.io/yourrepo
 
 # ── CSV 路徑（倉庫根目錄放 otc200.csv）──
 OTC_CSV_PATH = os.environ.get("OTC_CSV_PATH", "otc200.csv")

@@ -769,7 +769,7 @@ def run_early_filter(price_data, inst_data, fin_data, name_map, industry_map):
                 bonus_total += EW_BONUS_YOY * 0.4
                 bonus_flags.append(f'營收YoY{yov:.0f}%')
 
-        if inst_consec >= 2 or f_today_n > 80000:
+        if inst_consec >= 2 or f_today_n > 80:
             bonus_total += EW_BONUS_INST
             bonus_flags.append(f'法人連買{inst_consec}天')
         if past_60d < 25:

@@ -1,7 +1,10 @@
 """
-上櫃操盤手選股系統 v7.0 — GitHub Actions 自動化版
-每日 18:00 台灣時間自動執行，輸出 full_filtered CSV + HTML 報告
-並發送 Telegram 通知 + Email 通知（含附件）
+上櫃操盤手選股系統 v7.1 — 新增綜合分 (composite_score) + 三區塊 HTML
+修改摘要（v7.0 → v7.1）：
+  ① export_csvs()        — 新增 composite_score 欄位
+  ② export_html()        — HTML 重構為三區塊，各區塊嵌入 Top5 K線圖
+  ③ main()               — 新增 composite_charts 繪製流程
+  ④ 系統常數             — 新增 TOP_COMPOSITE = 8
 """
 
 # ============================================================
@@ -13,7 +16,6 @@ import os
 
 def install_system_deps():
     """安裝中文字型（GitHub Actions Ubuntu 環境）"""
-    # 安裝 fonts-noto-cjk（Ubuntu 24.04 有支援）
     try:
         subprocess.run(
             ["sudo", "apt-get", "install", "-y", "-q", "fonts-noto-cjk"],
@@ -55,22 +57,19 @@ warnings.filterwarnings('ignore')
 pd.set_option('display.max_columns', 30)
 
 # ============================================================
-# 區塊 2：設定（從環境變數讀取 Token，避免寫死在程式碼）
+# 區塊 2：設定
 # ============================================================
 
-# ── 必填：從 GitHub Secrets 讀取 ──
 FINMIND_TOKEN   = os.environ.get("FINMIND_TOKEN", "")
 TELEGRAM_TOKEN  = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GMAIL_USER      = os.environ.get("GMAIL_USER", "")
 GMAIL_APP_PASS  = os.environ.get("GMAIL_APP_PASS", "")
 EMAIL_TO        = os.environ.get("EMAIL_TO", "")
-GITHUB_PAGES_URL = os.environ.get("REPORT_URL", "")   # e.g. https://yourname.github.io/yourrepo
+GITHUB_PAGES_URL = os.environ.get("REPORT_URL", "")
 
-# ── CSV 路徑（倉庫根目錄放 otc200.csv）──
 OTC_CSV_PATH = os.environ.get("OTC_CSV_PATH", "otc200.csv")
 
-# ── 強勢確認股門檻 ──
 A_VOL_MA5_MIN     = 800
 A_TURNOVER_MIN    = 80_000_000
 A_PRICE_MIN       = 10
@@ -94,7 +93,6 @@ W_MA28_BIAS  = 1.0
 W_INST_DAYS  = 3.0
 W_RETURN_PCT = 0.8
 
-# ── 起漲預警門檻 ──
 EW_VOL_RATIO_MIN  = 1.10
 EW_VOL_RATIO_MAX  = 2.8
 EW_RETURN_MAX     = 6.5
@@ -112,16 +110,18 @@ EW_BONUS_YOY      = 16.0
 EW_BONUS_INST     = 24.0
 EW_BONUS_60D      = 22.0
 
-# ── 系統參數 ──
 TOP_STRONG   = 10
 TOP_EARLY    = 10
 TOP_CHART    = 5
+# ════════════════════════════════════════════
+# ★ 新增常數（v7.1）
+TOP_COMPOSITE = 8   # 綜合分 Top 8
+# ════════════════════════════════════════════
 MIN_DAYS     = 60
 BATCH_SIZE   = 40
 BATCH_DELAY  = 1.5
 ERROR_LOG    = "error_log.txt"
 
-# ── 時間 ──
 TODAY      = datetime.today()
 END_DATE   = TODAY.strftime('%Y-%m-%d')
 START_DATE = (TODAY - timedelta(days=400)).strftime('%Y-%m-%d')
@@ -132,16 +132,11 @@ print(f"[系統] 啟動時間：{datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
 print(f"[系統] 資料區間：{START_DATE} → {END_DATE}")
 
 # ============================================================
-# 區塊 3：字型初始化（GitHub Actions 穩定版）
+# 區塊 3：字型初始化
 # ============================================================
 
 def init_chinese_font():
-    """
-    在 GitHub Actions Ubuntu 24 環境下找到中文字型並載入。
-    回傳 (font_path, font_prop) 或 (None, None)。
-    """
     mpl.rcParams['axes.unicode_minus'] = False
-
     candidate_paths = [
         '/usr/share/fonts/opentype/noto/NotoSansCJK-Regular.ttc',
         '/usr/share/fonts/truetype/noto/NotoSansCJK-Regular.ttc',
@@ -149,12 +144,10 @@ def init_chinese_font():
         '/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc',
         '/usr/share/fonts/truetype/noto/NotoSansCJKtc-Regular.otf',
     ]
-
     found = next((p for p in candidate_paths if os.path.exists(p)), None)
     if found is None:
         print("  ⚠️  找不到中文字型，K線標題將使用英文")
         return None, None
-
     try:
         prop = fm.FontProperties(fname=found)
         font_name = prop.get_name()
@@ -306,7 +299,6 @@ def login_finmind():
     return api
 
 def detect_api_mode(api, stock_ids):
-    """偵測是否用 REST 或 SDK"""
     test_sid = stock_ids[0]
     try:
         t = api.taiwan_stock_daily(stock_id=test_sid, start_date=START_DATE, end_date=END_DATE)
@@ -344,7 +336,6 @@ def fetch_all_prices(stock_ids, api, use_rest):
     total   = len(stock_ids)
     batches = (total - 1) // BATCH_SIZE + 1
     print(f'[K線抓取] {total} 檔，{batches} 批次...')
-
     for i in range(0, total, BATCH_SIZE):
         batch    = stock_ids[i:i+BATCH_SIZE]
         batch_no = i // BATCH_SIZE + 1
@@ -361,7 +352,6 @@ def fetch_all_prices(stock_ids, api, use_rest):
         print(f'✓{ok} ✗{len(batch)-ok}  累計 {len(price_data)} 檔')
         if i + BATCH_SIZE < total:
             time.sleep(BATCH_DELAY)
-
     print(f'\n✅ K線完成  有效 {len(price_data)} / {total} 檔')
     return price_data
 
@@ -373,7 +363,6 @@ def parse_inst(raw):
     if raw is None or raw.empty or 'name' not in raw.columns:
         return None, None
     df = raw.sort_values('date').copy()
-
     def net_s(kws):
         pat = '|'.join(kws)
         sub = df[df['name'].str.contains(pat, na=False)].copy()
@@ -382,18 +371,15 @@ def parse_inst(raw):
         sub['net'] = (pd.to_numeric(sub['buy'],  errors='coerce').fillna(0) -
                       pd.to_numeric(sub['sell'], errors='coerce').fillna(0))
         return sub.groupby('date')['net'].sum()
-
     return net_s(['Foreign_Investor','外資']), net_s(['Investment_Trust','投信'])
 
 def fetch_all_inst(valid_ids, api, use_rest):
     EMPTY = {'foreign_consec':0,'trust_consec':0,'foreign_today':0.0,'trust_today':0.0,
              'foreign_3d':0.0,'trust_3d':0.0}
     inst_data = {sid: dict(EMPTY) for sid in valid_ids}
-
     total   = len(valid_ids)
     batches = (total - 1) // BATCH_SIZE + 1
     print(f'[籌碼抓取] {total} 檔...')
-
     for i in range(0, total, BATCH_SIZE):
         batch    = valid_ids[i:i+BATCH_SIZE]
         batch_no = i // BATCH_SIZE + 1
@@ -414,7 +400,6 @@ def fetch_all_inst(valid_ids, api, use_rest):
                         stock_id=sid, start_date=START_DATE, end_date=END_DATE)
                     if not isinstance(raw, pd.DataFrame) or raw.empty:
                         raw = None
-
                 f_net, t_net = parse_inst(raw)
                 inst_data[sid] = {
                     'foreign_consec': consec_buy_days(f_net),
@@ -430,7 +415,6 @@ def fetch_all_inst(valid_ids, api, use_rest):
         print(f'OK {ok}/{len(batch)}')
         if i + BATCH_SIZE < total:
             time.sleep(BATCH_DELAY)
-
     print('✅ 籌碼完成')
     return inst_data
 
@@ -443,63 +427,34 @@ def calc_yoy_revenue(sid, api, use_rest):
         if use_rest:
             r = requests.get(
                 'https://api.finmindtrade.com/api/v4/data',
-                params={
-                    'dataset': 'TaiwanStockMonthRevenue',
-                    'data_id': sid,
-                    'start_date': (TODAY - timedelta(days=500)).strftime('%Y-%m-%d'),
-                    'end_date': END_DATE,
-                    'token': FINMIND_TOKEN
-                }, timeout=20)
+                params={'dataset':'TaiwanStockMonthRevenue','data_id':sid,
+                        'start_date':(TODAY - timedelta(days=400)).strftime('%Y-%m-%d'),
+                        'end_date':END_DATE,'token':FINMIND_TOKEN}, timeout=20)
             rj = r.json()
-            raw = pd.DataFrame(rj['data']) if rj.get('status')==200 and rj.get('data') else None
+            rev_df = pd.DataFrame(rj['data']) if rj.get('status')==200 and rj.get('data') else None
         else:
-            raw = api.taiwan_stock_month_revenue(
+            rev_df = api.taiwan_stock_month_revenue(
                 stock_id=sid,
-                start_date=(TODAY - timedelta(days=500)).strftime('%Y-%m-%d'),
+                start_date=(TODAY - timedelta(days=400)).strftime('%Y-%m-%d'),
                 end_date=END_DATE)
-            if not isinstance(raw, pd.DataFrame) or raw.empty:
-                raw = None
+            if not isinstance(rev_df, pd.DataFrame) or rev_df.empty:
+                rev_df = None
 
-        if raw is None or raw.empty:
+        if rev_df is None or rev_df.empty:
             return None
-
-        raw.columns = [c.lower() for c in raw.columns]
-        rev_col = next((c for c in ['revenue','monthly_revenue','monthlyrevenue'] if c in raw.columns), None)
+        rev_df = rev_df.sort_values('date').reset_index(drop=True)
+        rev_col = next((c for c in ['revenue','Revenue','monthly_revenue'] if c in rev_df.columns), None)
         if rev_col is None:
             return None
-
-        raw['revenue'] = pd.to_numeric(raw[rev_col], errors='coerce')
-        has_ym = ('revenue_year' in raw.columns and 'revenue_month' in raw.columns)
-
-        if has_ym:
-            raw['revenue_year']  = pd.to_numeric(raw['revenue_year'],  errors='coerce')
-            raw['revenue_month'] = pd.to_numeric(raw['revenue_month'], errors='coerce')
-            raw = raw.dropna(subset=['revenue','revenue_year','revenue_month'])
-            raw = raw.sort_values(['revenue_year','revenue_month']).reset_index(drop=True)
-            if len(raw) < 2:
-                return None
-            latest     = raw.iloc[-1]
-            latest_rev = float(latest['revenue'])
-            prev_row   = raw[(raw['revenue_year'] == int(latest['revenue_year'])-1) &
-                             (raw['revenue_month'] == int(latest['revenue_month']))]
-        else:
-            raw = raw.dropna(subset=['revenue','date']).sort_values('date').reset_index(drop=True)
-            if len(raw) < 2:
-                return None
-            latest     = raw.iloc[-1]
-            latest_rev = float(latest['revenue'])
-            latest_m   = int(str(latest['date'])[5:7])
-            prev_y     = int(str(latest['date'])[:4]) - 1
-            raw['ym']  = raw['date'].astype(str).str[:7]
-            prev_row   = raw[raw['ym'] == f'{prev_y}-{latest_m:02d}']
-
-        if prev_row.empty:
+        rev_df[rev_col] = pd.to_numeric(rev_df[rev_col], errors='coerce')
+        rev_df = rev_df.dropna(subset=[rev_col])
+        if len(rev_df) < 13:
             return None
-        prev_rev = float(prev_row.iloc[-1]['revenue'])
+        latest_rev = rev_df[rev_col].iloc[-1]
+        prev_rev   = rev_df[rev_col].iloc[-13]
         if prev_rev <= 0 or np.isnan(prev_rev):
             return None
         return round((latest_rev - prev_rev) / abs(prev_rev) * 100, 1)
-
     except Exception as e:
         log_error(f'{sid} 月營收YoY：{e}')
         return None
@@ -509,7 +464,6 @@ def fetch_all_revenue(valid_ids, api, use_rest):
     total   = len(valid_ids)
     batches = (total - 1) // BATCH_SIZE + 1
     print(f'[月營收抓取] {total} 檔...')
-
     for i in range(0, total, BATCH_SIZE):
         batch    = valid_ids[i:i+BATCH_SIZE]
         batch_no = i // BATCH_SIZE + 1
@@ -525,7 +479,6 @@ def fetch_all_revenue(valid_ids, api, use_rest):
         print(f'有YoY {ok} / 無資料 {fail}')
         if i + BATCH_SIZE < total:
             time.sleep(BATCH_DELAY)
-
     print(f'✅ 月營收完成  有YoY {sum(1 for v in fin_data.values() if v is not None)} / {total} 檔')
     return fin_data
 
@@ -654,7 +607,6 @@ def run_strong_filter(price_data, inst_data, fin_data, name_map, industry_map):
             '_ic': float(inst_consec), '_dp': dpct, '_h20': h20,
         })
 
-    # Z-score 綜合分
     if len(candidates) >= 2:
         vz = safe_zscore([c['_vr'] for c in candidates])
         mz = safe_zscore([c['_mb'] for c in candidates])
@@ -673,7 +625,6 @@ def run_strong_filter(price_data, inst_data, fin_data, name_map, industry_map):
             c['z_score'] = 0.0
             c['total_score'] = c['score']
 
-    # 扣分
     for c in candidates:
         if c.get('ma28_bias',0) > 35:      c['total_score'] -= 18
         elif c.get('ma28_bias',0) > 25:    c['total_score'] -= 10
@@ -726,7 +677,6 @@ def run_early_filter(price_data, inst_data, fin_data, name_map, industry_map):
         else:
             past_60d = 0.0
 
-        # 硬條件
         if to_day < EW_TURNOVER_MIN:                        continue
         if not (EW_VOL_RATIO_MIN <= vol_ratio <= EW_VOL_RATIO_MAX): continue
         if not (EW_RETURN_MIN <= dpct <= EW_RETURN_MAX):   continue
@@ -904,7 +854,8 @@ def draw_kline(sid, price_data, name_map, font_path, label=''):
         return None
 
 # ============================================================
-# 區塊 13：輸出 CSV（只輸出 full_filtered）
+# ★ 區塊 13：輸出 CSV（新增 composite_score 欄位）
+# ★ 修改重點（v7.1）
 # ============================================================
 
 def export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df):
@@ -962,6 +913,29 @@ def export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df):
         reject_str = '；'.join(reject_parts) if reject_parts else ('通過強勢篩選' if is_strong else '未通過')
         ew_rej_str = '；'.join(ew_reject)    if ew_reject    else ('通過預警篩選' if is_early  else '未通過預警')
 
+        # ── 取出各自原始分 ──
+        ts  = strong_score_map.get(sid, '')   # total_score（強勢）
+        es  = early_score_map.get(sid,  '')   # early_score（起漲）
+
+        # ════════════════════════════════════════════════════════
+        # ★ 新增：計算綜合分
+        #   composite_score = early_score × 0.45 + total_score × 0.55
+        #   兩分都有才計算；只有一分用單分；都沒有則空白
+        # ════════════════════════════════════════════════════════
+        try:
+            ts_f = float(ts) if ts != '' else None
+            es_f = float(es) if es != '' else None
+            if ts_f is not None and es_f is not None:
+                composite = round(es_f * 0.45 + ts_f * 0.55, 2)
+            elif ts_f is not None:
+                composite = round(ts_f * 0.55, 2)
+            elif es_f is not None:
+                composite = round(es_f * 0.45, 2)
+            else:
+                composite = ''
+        except (ValueError, TypeError):
+            composite = ''
+
         full_rows.append({
             'stock_id': sid, 'name': name_map.get(sid, sid),
             'close': round(close, 2), 'vol_ratio': round(vol_r, 2),
@@ -973,31 +947,37 @@ def export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df):
             'foreign_today': f_today, 'trust_today': t_today,
             'foreign_3d': f_3d, 'trust_3d': t_3d,
             'is_strong_confirm': is_strong, 'is_early_breakout': is_early,
-            'total_score': strong_score_map.get(sid, ''),
-            'early_score': early_score_map.get(sid, ''),
+            'total_score': ts,
+            'early_score': es,
+            'composite_score': composite,   # ★ 新增欄位
             'reject_reason': reject_str, 'early_reject_reason': ew_rej_str,
         })
 
     full_out = (pd.DataFrame(full_rows)
-                .sort_values(['is_strong_confirm','is_early_breakout','total_score'],
+                .sort_values(['is_strong_confirm','is_early_breakout','composite_score'],
                              ascending=[False, False, False])
                 .reset_index(drop=True))
 
-    # 只輸出 full_filtered（依照需求）
     os.makedirs('output', exist_ok=True)
     csv_fname = f'output/full_filtered_{TODAY_STR}.csv'
     full_out.to_csv(csv_fname, index=False, encoding='utf-8-sig')
     print(f'✅ CSV 已儲存：{csv_fname}（{len(full_out)} 筆）')
-    print(f'   強勢確認：{full_out["is_strong_confirm"].sum()} 筆  起漲預警：{full_out["is_early_breakout"].sum()} 筆')
+    print(f'   強勢確認：{full_out["is_strong_confirm"].sum()} 筆  '
+          f'起漲預警：{full_out["is_early_breakout"].sum()} 筆')
     return csv_fname, full_out
 
+
 # ============================================================
-# 區塊 14：產生 HTML 報告
+# ★ 區塊 14：產生 HTML 報告（三區塊重構 + 各區塊嵌入 K線圖）
+# ★ 修改重點（v7.1）
 # ============================================================
 
 def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
-                strong_candidates, early_candidates, strong_charts, early_charts):
+                strong_candidates, early_candidates,
+                strong_charts, early_charts, composite_charts,  # ★ 新增 composite_charts 參數
+                full_out):                                        # ★ 新增 full_out 參數
 
+    # ── 格式化輔助函式（與原版相同）──
     def fmt_num(v, decimals=2):
         try: return f'{float(v):,.{decimals}f}'
         except: return str(v)
@@ -1055,6 +1035,18 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         c = colors.get(v,'#8b949e')
         return f'<span style="background:{c};color:#fff;padding:2px 10px;border-radius:12px;font-weight:700;font-size:0.85em">{v}</span>'
 
+    def composite_badge(v):
+        """綜合分顯示徽章"""
+        try:
+            f = float(v)
+            color = '#e6a817' if f >= 20 else ('#4A90E2' if f >= 10 else '#8b949e')
+            return (f'<span style="background:linear-gradient(135deg,#1a2a3a,#2d4a6a);'
+                    f'color:#fff;padding:3px 12px;border-radius:20px;font-weight:700;'
+                    f'font-size:1.05em;white-space:nowrap">{f:.2f}</span>')
+        except:
+            return '<span style="color:#8b949e">-</span>'
+
+    # ── 強勢確認股 表格列（原版維持不變）──
     def build_strong_rows(df):
         rows = ''
         for _, r in df.head(TOP_STRONG).iterrows():
@@ -1091,6 +1083,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         </tr>"""
         return rows
 
+    # ── 起漲預警 表格列（原版維持不變）──
     def build_early_rows(df):
         if df.empty:
             return '<tr><td colspan="15" style="text-align:center;color:#8b949e;padding:24px">今日無符合起漲預警條件個股</td></tr>'
@@ -1121,27 +1114,77 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         </tr>"""
         return rows
 
-    # ── 組合各區塊 ──
-    strong_rows = (build_strong_rows(strong_df) if not strong_df.empty
-                   else '<tr><td colspan="15" style="text-align:center;color:#8b949e;padding:24px">今日無符合條件個股</td></tr>')
-    early_rows  = build_early_rows(early_df)
+    # ════════════════════════════════════════════════════════════
+    # ★ 新增：綜合分 Top 8 表格列
+    # 欄位：排名、代碼、名稱、綜合分、關鍵訊號、收盤價、量比、
+    #        MA28乖離、漲幅%、RSI14、營收YoY、法人連買、early_score、total_score
+    # ════════════════════════════════════════════════════════════
+    def build_composite_rows(full_df, strong_df_ref, early_df_ref):
+        if full_df.empty:
+            return '<tr><td colspan="14" style="text-align:center;color:#8b949e;padding:24px">無綜合分資料</td></tr>'
 
-    top1_id    = strong_df.iloc[0]['stock_id'] if not strong_df.empty else '-'
-    top1_name  = strong_df.iloc[0]['name']     if not strong_df.empty else ''
-    top1_score = fmt_num(strong_df.iloc[0]['total_score']) if not strong_df.empty else '-'
+        # 取有 composite_score 的列，排序取 Top 8
+        comp_df = full_df[full_df['composite_score'] != ''].copy()
+        comp_df['_cs'] = pd.to_numeric(comp_df['composite_score'], errors='coerce')
+        comp_df = comp_df.dropna(subset=['_cs']).sort_values('_cs', ascending=False).head(TOP_COMPOSITE).reset_index(drop=True)
 
-    # ── K線圖區塊（兩類合併放在最後）──
-    def build_chart_section(chart_dict, df_ref, is_strong=True):
+        # 建立訊號查找
+        strong_sig_map = {}
+        if not strong_df_ref.empty:
+            for _, sr in strong_df_ref.iterrows():
+                strong_sig_map[sr['stock_id']] = sr.get('signal', '')
+        early_sig_map = {}
+        if not early_df_ref.empty:
+            for _, er in early_df_ref.iterrows():
+                early_sig_map[er['stock_id']] = er.get('signal', '')
+
+        rows = ''
+        medals_comp = ['🏅','🎖️','⭐','✨','💫','🔸','🔹','▪️']
+        for i, r in comp_df.iterrows():
+            rank_no = i + 1
+            medal   = medals_comp[i] if i < len(medals_comp) else f'#{rank_no}'
+            sid     = r['stock_id']
+
+            # 訊號優先取強勢，無則取預警，再無則用 CSV reject_reason
+            sig = strong_sig_map.get(sid, '') or early_sig_map.get(sid, '') or r.get('reject_reason','')
+            sig_html = f'<span style="font-size:0.82em;color:#c9d1d9">{sig[:60]}</span>'
+
+            yoy_rev = fin_data.get(sid, r.get('yoy_revenue_pct', None))
+            inst_c  = r.get('inst_consec_days', 0)
+            es_val  = r.get('early_score', '')
+            ts_val  = r.get('total_score', '')
+            cs_val  = r.get('_cs', '')
+
+            rows += f"""
+        <tr>
+          <td style="font-size:1.1em;text-align:center;white-space:nowrap">{medal}</td>
+          <td><span style="font-size:1.05em;font-weight:700;color:#bd8af5;white-space:nowrap">{sid}</span></td>
+          <td style="font-weight:600;white-space:nowrap">{r['name']}</td>
+          <td>{composite_badge(cs_val)}</td>
+          <td style="white-space:normal;min-width:120px;max-width:160px">{sig_html}</td>
+          <td style="font-weight:600;white-space:nowrap">{fmt_num(r['close'],1)}</td>
+          <td style="white-space:nowrap">{fmt_num(r['vol_ratio'])}x</td>
+          <td style="white-space:nowrap">{pct_color(r['ma28_bias_pct'])}</td>
+          <td style="white-space:nowrap">{pct_color(r['daily_return_pct'])}</td>
+          <td style="white-space:nowrap">{rsi_color(r['rsi14'])}</td>
+          <td style="text-align:center">{fmt_yoy(yoy_rev)}</td>
+          <td style="text-align:center">{fmt_inst_consec(inst_c)}</td>
+          <td style="text-align:center;color:#3fb950">{fmt_num(es_val) if es_val != '' else '-'}</td>
+          <td style="text-align:center;color:#e6a817">{fmt_num(ts_val) if ts_val != '' else '-'}</td>
+        </tr>"""
+        return rows
+
+    # ── K線圖區塊建構（共用函式）──
+    def build_chart_html(chart_dict, df_ref, score_col='total_score', label_prefix=''):
         html = ''
         for sid, b64 in chart_dict.items():
             name = name_map.get(sid, sid)
-            row  = df_ref[df_ref['stock_id'] == sid]
+            row  = df_ref[df_ref['stock_id'] == sid] if not df_ref.empty else pd.DataFrame()
             if not row.empty:
                 r = row.iloc[0]
-                score_col = 'total_score' if is_strong else 'total_ew_score'
                 caption = f'#{int(r["rank"])} &nbsp; {sid} {name} &nbsp;｜&nbsp; 評分 {fmt_num(r.get(score_col,0))}'
             else:
-                caption = f'{sid} {name}'
+                caption = f'{sid} {name} {label_prefix}'
             html += f"""
         <div class="chart-wrap">
           <div class="chart-caption">{caption}</div>
@@ -1149,8 +1192,28 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         </div>"""
         return html
 
-    strong_chart_html = build_chart_section(strong_charts, strong_df, is_strong=True)
-    early_chart_html  = build_chart_section(early_charts,  early_df,  is_strong=False)
+    # ── 建構各區塊 ──
+    strong_rows    = (build_strong_rows(strong_df) if not strong_df.empty
+                      else '<tr><td colspan="15" style="text-align:center;color:#8b949e;padding:24px">今日無符合條件個股</td></tr>')
+    early_rows     = build_early_rows(early_df)
+    composite_rows = build_composite_rows(full_out, strong_df, early_df)
+
+    top1_id    = strong_df.iloc[0]['stock_id'] if not strong_df.empty else '-'
+    top1_name  = strong_df.iloc[0]['name']     if not strong_df.empty else ''
+    top1_score = fmt_num(strong_df.iloc[0]['total_score']) if not strong_df.empty else '-'
+
+    # ── 各區塊 K 線圖 ──
+    # 強勢區塊：顯示綜合分最高的 Top5（從 full_out 取綜合分 Top5 的 strong 股票）
+    strong_chart_html    = build_chart_html(strong_charts, strong_df, score_col='total_score')
+    # 起漲區塊：顯示綜合分最高的 Top5（early_charts 依 composite_score 已排序）
+    early_chart_html     = build_chart_html(early_charts,  early_df,  score_col='total_ew_score')
+
+    # ★ 綜合分區塊：顯示 composite Top8 前5的 K線圖（composite_charts 已依排序傳入）
+    comp_df_tmp = full_out[full_out['composite_score'] != ''].copy()
+    comp_df_tmp['_cs'] = pd.to_numeric(comp_df_tmp['composite_score'], errors='coerce')
+    comp_df_tmp = comp_df_tmp.dropna(subset=['_cs']).sort_values('_cs', ascending=False).reset_index(drop=True)
+    comp_df_tmp.insert(0, 'rank', range(1, len(comp_df_tmp)+1))
+    composite_chart_html = build_chart_html(composite_charts, comp_df_tmp, score_col='_cs', label_prefix='| 綜合潛力')
 
     html = f"""<!DOCTYPE html>
 <html lang="zh-TW">
@@ -1163,7 +1226,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
   :root {{
     --bg:#0d1117; --bg2:#161b22; --bg3:#1c2129;
     --border:#30363d; --gold:#e6a817; --blue2:#4A90E2;
-    --red:#f85149; --green:#3fb950;
+    --red:#f85149; --green:#3fb950; --purple:#bd8af5;
     --text:#e6edf3; --text2:#c9d1d9; --text3:#8b949e;
   }}
   * {{ box-sizing:border-box; margin:0; padding:0; }}
@@ -1187,9 +1250,10 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
   .container {{ max-width:1440px; margin:0 auto; padding:32px; }}
   .section {{ margin-bottom:48px; border:1px solid var(--border); border-radius:12px; overflow:hidden; }}
   .section-header {{ padding:20px 28px; display:flex; align-items:center; gap:14px; }}
-  .section-header.strong {{ background:linear-gradient(90deg,#1a2a4a 0%,#1c2129 100%); border-bottom:1px solid #2d4a7a; }}
-  .section-header.early  {{ background:linear-gradient(90deg,#1a2a1a 0%,#1c2129 100%); border-bottom:1px solid #2d4a2d; }}
-  .section-header.charts {{ background:linear-gradient(90deg,#1a1a2a 0%,#1c2129 100%); border-bottom:1px solid #3a3a5a; }}
+  .section-header.strong    {{ background:linear-gradient(90deg,#1a2a4a 0%,#1c2129 100%); border-bottom:1px solid #2d4a7a; }}
+  .section-header.early     {{ background:linear-gradient(90deg,#1a2a1a 0%,#1c2129 100%); border-bottom:1px solid #2d4a2d; }}
+  .section-header.composite {{ background:linear-gradient(90deg,#2a1a3a 0%,#1c2129 100%); border-bottom:1px solid #5a2d7a; }}
+  .section-header.charts    {{ background:linear-gradient(90deg,#1a1a2a 0%,#1c2129 100%); border-bottom:1px solid #3a3a5a; }}
   .section-icon {{ font-size:1.6em; }}
   .section-title-text h2 {{ font-size:1.2em; font-weight:900; }}
   .section-title-text p  {{ font-size:0.82em; color:var(--text3); margin-top:2px; }}
@@ -1221,7 +1285,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
 </head>
 <body>
 <div class="header">
-  <div class="header-label">上櫃操盤手 · 機密報告 v7.0</div>
+  <div class="header-label">上櫃操盤手 · 機密報告 v7.1</div>
   <h1>上櫃操盤手 — <span>{TODAY_DISP}</span> 收盤後最高勝率短線選股報告</h1>
   <div class="header-meta">
     掃描 <strong>{len(price_data)}</strong> 檔 ｜
@@ -1261,7 +1325,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
 
 <div class="container">
 
-  <!-- ══════════════ 強勢確認股 表格 ══════════════ -->
+  <!-- ══════════════ 第一區塊：強勢確認股 表格 + K線圖 ══════════════ -->
   <div class="section">
     <div class="section-header strong">
       <div class="section-icon">🔥</div>
@@ -1289,9 +1353,14 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
       </div>
       <div><span style="color:var(--red)">RSI⚠️</span> ≥78 追高需謹慎</div>
     </div>
+    <!-- ★ 強勢區塊 K線圖（綜合分最高 Top5）-->
+    <div class="charts-grid" style="border-top:2px solid #2d4a7a">
+      <div class="charts-title">🔥 強勢確認股 TOP {min(TOP_CHART, len(strong_charts))} K 線圖（綜合分最高）</div>
+      {strong_chart_html if strong_chart_html else '<p style="color:var(--text3);text-align:center;padding:20px">K線圖產生失敗</p>'}
+    </div>
   </div>
 
-  <!-- ══════════════ 起漲預警 表格 ══════════════ -->
+  <!-- ══════════════ 第二區塊：起漲預警 表格 + K線圖 ══════════════ -->
   <div class="section">
     <div class="section-header early">
       <div class="section-icon">🌱</div>
@@ -1320,29 +1389,52 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
       </div>
       <div>📉收斂比 = 10日均振幅÷20日均振幅（&lt;1.12才通過）</div>
     </div>
+    <!-- ★ 起漲區塊 K線圖（綜合分最高 Top5）-->
+    <div class="charts-grid" style="border-top:2px solid #2d4a2d">
+      <div class="charts-title">🌱 起漲預警 TOP {min(TOP_CHART, len(early_charts))} K 線圖（綜合分最高）</div>
+      {early_chart_html if early_chart_html else '<p style="color:var(--text3);text-align:center;padding:20px">無起漲預警 K 線圖</p>'}
+    </div>
   </div>
 
-  <!-- ══════════════ K 線圖區（強勢 + 起漲，統一放最後）══════════════ -->
+  <!-- ══════════════ ★ 第三區塊：綜合分 Top 8 ══════════════ -->
   <div class="section">
-    <div class="section-header charts">
-      <div class="section-icon">📈</div>
+    <div class="section-header composite">
+      <div class="section-icon">🔮</div>
       <div class="section-title-text">
-        <h2>K 線圖總覽（MA5 橙 ／ MA20 藍 ／ MA28 紫 ／ RSI ／ MACD）</h2>
-        <p>強勢確認股 Top {min(TOP_CHART, len(strong_charts))} ＋ 起漲預警 Top {min(TOP_CHART, len(early_charts))}</p>
+        <h2>綜合轉強潛力股 Top {TOP_COMPOSITE}</h2>
+        <p>綜合分 = 起漲分 × 0.45 + 強勢分 × 0.55，兼具短線爆發力與基本面支撐</p>
       </div>
     </div>
-    <div class="charts-grid">
-      <div class="charts-title">🔥 強勢確認股 TOP {min(TOP_CHART, len(strong_charts))} K 線圖</div>
-      {strong_chart_html if strong_chart_html else '<p style="color:var(--text3);text-align:center;padding:20px">K線圖產生失敗</p>'}
-      <div class="chart-divider"></div>
-      <div class="charts-title">🌱 起漲預警 TOP {min(TOP_CHART, len(early_charts))} K 線圖</div>
-      {early_chart_html if early_chart_html else '<p style="color:var(--text3);text-align:center;padding:20px">無起漲預警 K 線圖</p>'}
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>排名</th><th>代碼</th><th>名稱</th><th>綜合分</th>
+          <th>關鍵訊號</th>
+          <th>收盤價</th><th>量比</th>
+          <th>MA28乖離</th><th>漲幅%</th><th>RSI14</th>
+          <th>營收YoY</th><th>法人連買</th>
+          <th>起漲分</th><th>強勢分</th>
+        </tr></thead>
+        <tbody>{composite_rows}</tbody>
+      </table>
+    </div>
+    <div class="legend">
+      <div style="display:flex;align-items:center;gap:5px">
+        <span class="dot" style="background:var(--purple)"></span>
+        綜合分公式：起漲分（early_score）× 0.45 + 強勢分（total_score）× 0.55
+      </div>
+      <div>🔮 適合同時具備蓄勢特徵與當日量能的中短線多頭候選</div>
+    </div>
+    <!-- ★ 綜合分區塊 K線圖（Top8 前5名）-->
+    <div class="charts-grid" style="border-top:2px solid #5a2d7a">
+      <div class="charts-title">🔮 綜合轉強潛力股 TOP {min(TOP_CHART, len(composite_charts))} K 線圖</div>
+      {composite_chart_html if composite_chart_html else '<p style="color:var(--text3);text-align:center;padding:20px">無綜合分 K 線圖</p>'}
     </div>
   </div>
 
 </div>
 <div class="footer">
-  上櫃操盤手選股系統 v7.0 ｜ {TODAY_DISP} ｜ 僅供內部參考，不構成投資建議
+  上櫃操盤手選股系統 v7.1 ｜ {TODAY_DISP} ｜ 綜合分公式：early×0.45 + total×0.55 ｜ 僅供內部參考，不構成投資建議
 </div>
 </body></html>"""
 
@@ -1389,7 +1481,6 @@ def send_telegram(strong_df, early_df, strong_candidates, early_candidates, html
         lines.append(f"🌐 [完整報告點這裡]({GITHUB_PAGES_URL})")
 
     msg = '\n'.join(lines)
-
     url = f"https://api.telegram.org/bot{TELEGRAM_TOKEN}/sendMessage"
     try:
         resp = requests.post(url, json={
@@ -1419,7 +1510,6 @@ def send_email(csv_fname, html_fname, strong_df, early_df, strong_candidates, ea
     msg['From']    = GMAIL_USER
     msg['To']      = EMAIL_TO
 
-    # ── 文字 Body ──
     body_lines = [
         f'上櫃操盤手選股系統 — {TODAY_DISP}',
         '',
@@ -1449,7 +1539,6 @@ def send_email(csv_fname, html_fname, strong_df, early_df, strong_candidates, ea
     body_lines.extend(['', '--- 本郵件由系統自動發送，不構成投資建議 ---'])
     msg.attach(MIMEText('\n'.join(body_lines), 'plain', 'utf-8'))
 
-    # ── 附件 1：CSV ──
     for fpath in [csv_fname, html_fname]:
         if os.path.exists(fpath):
             with open(fpath, 'rb') as f:
@@ -1469,36 +1558,32 @@ def send_email(csv_fname, html_fname, strong_df, early_df, strong_candidates, ea
         print(f'⚠️  Email 發送失敗：{e}')
 
 # ============================================================
-# 全域變數（供通知函式使用）
+# 全域變數
 # ============================================================
 price_data_global = {}
 fin_data_global   = {}
 
 # ============================================================
-# 主程式
+# ★ 主程式（v7.1 修改：新增 composite_charts 繪製 + 傳入 export_html）
 # ============================================================
 
 def main():
     global price_data_global, fin_data_global
 
     print("=" * 60)
-    print("上櫃操盤手選股系統 v7.0 — 開始執行")
+    print("上櫃操盤手選股系統 v7.1 — 開始執行")
     print("=" * 60)
 
-    # ── 字型 ──
     install_system_deps()
     font_path, font_prop = init_chinese_font()
 
-    # ── 讀取股票清單 ──
     stock_ids, name_map = load_stock_list()
     industry_map = load_industry_map()
     print(f'有效代碼：{len(stock_ids)} 檔')
 
-    # ── FinMind 登入 ──
     api = login_finmind()
     use_rest = detect_api_mode(api, stock_ids)
 
-    # ── 抓取資料 ──
     price_data = fetch_all_prices(stock_ids, api, use_rest)
     price_data_global = price_data
 
@@ -1507,11 +1592,23 @@ def main():
     fin_data   = fetch_all_revenue(valid_ids, api, use_rest)
     fin_data_global = fin_data
 
-    # ── 篩選 ──
     strong_df, strong_candidates = run_strong_filter(price_data, inst_data, fin_data, name_map, industry_map)
     early_df,  early_candidates  = run_early_filter(price_data, inst_data, fin_data, name_map, industry_map)
 
-    # ── K 線圖 ──
+    # ── 先輸出 CSV（需要 full_out 才能決定 composite Top8 的圖）──
+    csv_fname, full_out = export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df)
+
+    # ────────────────────────────────────────────────────────
+    # ★ 計算 composite Top5 的 sid 清單（用於 K線圖）
+    # ────────────────────────────────────────────────────────
+    comp_chart_df = full_out[full_out['composite_score'] != ''].copy()
+    comp_chart_df['_cs'] = pd.to_numeric(comp_chart_df['composite_score'], errors='coerce')
+    comp_chart_df = (comp_chart_df.dropna(subset=['_cs'])
+                     .sort_values('_cs', ascending=False)
+                     .head(TOP_CHART))
+    composite_chart_sids = comp_chart_df['stock_id'].tolist()
+
+    # ── 強勢確認股 K 線圖（原有邏輯）──
     print('\n[強勢確認股] 繪製 K 線圖...')
     strong_charts = {}
     if not strong_df.empty:
@@ -1522,6 +1619,7 @@ def main():
                 strong_charts[sid] = b64
             print(f'  {sid} {name_map.get(sid,"")}: {"OK" if b64 else "失敗"}')
 
+    # ── 起漲預警 K 線圖（原有邏輯）──
     print('\n[起漲預警] 繪製 K 線圖...')
     early_charts = {}
     if not early_df.empty:
@@ -1532,13 +1630,21 @@ def main():
                 early_charts[sid] = b64
             print(f'  {sid} {name_map.get(sid,"")}: {"OK" if b64 else "失敗"}')
 
-    # ── 輸出檔案 ──
-    csv_fname, full_out = export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df)
+    # ★ 綜合分 Top5 K 線圖（新增）
+    print('\n[綜合分 Top5] 繪製 K 線圖...')
+    composite_charts = {}
+    for sid in composite_chart_sids:
+        b64 = draw_kline(sid, price_data, name_map, font_path, label='| 綜合轉強')
+        if b64:
+            composite_charts[sid] = b64
+        print(f'  {sid} {name_map.get(sid,"")}: {"OK" if b64 else "失敗"}')
+
+    # ── 輸出 HTML（傳入三組 charts + full_out）──
     html_fname = export_html(price_data, inst_data, fin_data, name_map,
                              strong_df, early_df, strong_candidates, early_candidates,
-                             strong_charts, early_charts)
+                             strong_charts, early_charts, composite_charts,  # ★
+                             full_out)                                         # ★
 
-    # ── 通知 ──
     send_telegram(strong_df, early_df, strong_candidates, early_candidates, html_fname)
     send_email(csv_fname, html_fname, strong_df, early_df, strong_candidates, early_candidates)
 

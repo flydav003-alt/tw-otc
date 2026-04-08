@@ -3,11 +3,15 @@ on:
   schedule:
     - cron: '52 09 * * 1-5'
   workflow_dispatch:
+
 jobs:
   run-scanner:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
+      pages: write
+      id-token: write
+
     steps:
       - name: 取出程式碼
         uses: actions/checkout@v4
@@ -47,24 +51,35 @@ jobs:
           git config user.email "github-actions[bot]@users.noreply.github.com"
           mkdir -p output docs
 
-          # 把今天的 HTML 改名為 index.html（output/ 固定網址）
+          # ★ 先 pull，避免 non-fast-forward 被拒絕
+          git pull --rebase origin main
+
+          # 複製 HTML 到兩個位置
           NEW_HTML=$(ls output/OTC_report_*.html 2>/dev/null | head -1)
           if [ -n "$NEW_HTML" ]; then
             cp "$NEW_HTML" output/index.html
-            # ★ 同時複製一份到 docs/（GitHub Pages 讀這裡）
             cp "$NEW_HTML" docs/index.html
             rm -f "$NEW_HTML"
+            echo "✅ HTML 已複製到 output/index.html 和 docs/index.html"
+          else
+            echo "❌ 找不到新的 HTML 檔案！"
+            exit 1
           fi
 
-          # 清掉帶日期的舊 CSV（保留最新 index.html）
+          # 清掉帶日期的舊檔
           git rm -f output/OTC_report_*.html 2>/dev/null || true
           git rm -f output/full_filtered_*.csv 2>/dev/null || true
 
-          # 加入最新的 CSV
+          # 加入最新 CSV
           LATEST_CSV=$(ls output/full_filtered_*.csv 2>/dev/null | head -1)
-          [ -n "$LATEST_CSV" ] && git add "$LATEST_CSV"
+          [ -n "$LATEST_CSV" ] && git add -f "$LATEST_CSV"
 
-          git add output/index.html docs/index.html
+          # 強制加入 index.html（-f 無視任何忽略規則）
+          git add -f output/index.html
+          git add -f docs/index.html
+
+          # 顯示 status 方便除錯
+          git status
 
           git diff --cached --quiet || git commit -m "Update: 每日選股報告 $(date +'%Y-%m-%d')"
           git push

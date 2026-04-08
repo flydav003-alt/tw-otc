@@ -752,7 +752,7 @@ def run_early_filter(price_data, inst_data, fin_data, name_map, industry_map):
 
         vol_ratio_score = vol_ratio * 15
         consol_score    = max(0, (1.20 - consol)) * 14
-        inst_score      = (1 if inst_consec >= 2 or f_today_n >= 80000 else 0) * 18
+        inst_score = (1 if inst_consec >= 2 or f_today_n >= 80 else 0) * 18
         ew_score = 0.35*vol_ratio_score + 0.30*consol_score + 0.35*inst_score
 
         bonus_total = 8.0

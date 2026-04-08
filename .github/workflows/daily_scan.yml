@@ -1,4 +1,5 @@
 name: 上櫃選股系統 每日自動執行
+
 on:
   schedule:
     - cron: '52 09 * * 1-5'
@@ -9,12 +10,12 @@ jobs:
     runs-on: ubuntu-24.04
     permissions:
       contents: write
-      pages: write
-      id-token: write
 
     steps:
       - name: 取出程式碼
         uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
 
       - name: 安裝中文字型
         run: |
@@ -45,41 +46,47 @@ jobs:
           OTC_CSV_PATH:     otc200.csv
         run: python otc_scanner.py
 
-      - name: 推送輸出檔到倉庫
+      - name: 推送報告到 docs/
         run: |
           git config user.name  "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          mkdir -p output docs
 
-          # ★ 先 pull，避免 non-fast-forward 被拒絕
-          git pull --rebase origin main
+          # 確保 docs 資料夾存在
+          mkdir -p docs
 
-          # 複製 HTML 到兩個位置
+          # 找到 Python 產生的 HTML，直接複製到 docs/index.html
           NEW_HTML=$(ls output/OTC_report_*.html 2>/dev/null | head -1)
-          if [ -n "$NEW_HTML" ]; then
-            cp "$NEW_HTML" output/index.html
-            cp "$NEW_HTML" docs/index.html
-            rm -f "$NEW_HTML"
-            echo "✅ HTML 已複製到 output/index.html 和 docs/index.html"
-          else
-            echo "❌ 找不到新的 HTML 檔案！"
+          if [ -z "$NEW_HTML" ]; then
+            echo "❌ 找不到 HTML 檔案，Python 執行可能失敗"
             exit 1
           fi
 
-          # 清掉帶日期的舊檔
-          git rm -f output/OTC_report_*.html 2>/dev/null || true
-          git rm -f output/full_filtered_*.csv 2>/dev/null || true
+          echo "✅ 找到 HTML：$NEW_HTML"
+          cp "$NEW_HTML" docs/index.html
+          echo "✅ 已複製到 docs/index.html"
 
-          # 加入最新 CSV
+          # 也把 CSV 複製到 docs/
           LATEST_CSV=$(ls output/full_filtered_*.csv 2>/dev/null | head -1)
-          [ -n "$LATEST_CSV" ] && git add -f "$LATEST_CSV"
+          if [ -n "$LATEST_CSV" ]; then
+            cp "$LATEST_CSV" docs/report.csv
+            echo "✅ 已複製 CSV 到 docs/report.csv"
+          fi
 
-          # 強制加入 index.html（-f 無視任何忽略規則）
-          git add -f output/index.html
-          git add -f docs/index.html
+          # 強制加入所有 docs 底下的檔案
+          git add -f docs/
 
-          # 顯示 status 方便除錯
+          # 顯示狀態
+          echo "=== git status ==="
           git status
 
-          git diff --cached --quiet || git commit -m "Update: 每日選股報告 $(date +'%Y-%m-%d')"
-          git push
+          echo "=== git diff --cached --stat ==="
+          git diff --cached --stat
+
+          # 有變動才 commit
+          if git diff --cached --quiet; then
+            echo "⚠️  沒有變動，跳過 commit"
+          else
+            git commit -m "Update: 每日選股報告 $(date +'%Y-%m-%d %H:%M')"
+            git push origin main
+            echo "✅ Push 完成"
+          fi

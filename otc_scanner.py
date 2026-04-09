@@ -115,7 +115,7 @@ TOP_EARLY    = 10
 TOP_CHART    = 5
 # ════════════════════════════════════════════
 # ★ 新增常數（v7.1）
-TOP_COMPOSITE = 8   # 綜合分 Top 8
+TOP_COMPOSITE = 10   # 綜合分 Top 10
 # ════════════════════════════════════════════
 MIN_DAYS     = 60
 BATCH_SIZE   = 40
@@ -1198,9 +1198,12 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     early_rows     = build_early_rows(early_df)
     composite_rows = build_composite_rows(full_out, strong_df, early_df)
 
-    top1_id    = strong_df.iloc[0]['stock_id'] if not strong_df.empty else '-'
-    top1_name  = strong_df.iloc[0]['name']     if not strong_df.empty else ''
-    top1_score = fmt_num(strong_df.iloc[0]['total_score']) if not strong_df.empty else '-'
+    _comp_top = full_out[full_out['composite_score'] != ''].copy()
+    _comp_top['_cs'] = pd.to_numeric(_comp_top['composite_score'], errors='coerce')
+    _comp_top = _comp_top.dropna(subset=['_cs']).sort_values('_cs', ascending=False)
+    top1_id    = _comp_top.iloc[0]['stock_id']     if not _comp_top.empty else '-'
+    top1_name  = _comp_top.iloc[0]['name']         if not _comp_top.empty else ''
+    top1_score = fmt_num(_comp_top.iloc[0]['_cs']) if not _comp_top.empty else '-'
 
     # ── 各區塊 K 線圖 ──
     # 強勢區塊：顯示綜合分最高的 Top5（從 full_out 取綜合分 Top5 的 strong 股票）
@@ -1281,6 +1284,16 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
   .footer {{ text-align:center; padding:24px; color:var(--text3);
     font-size:0.8em; border-top:1px solid var(--border); }}
   .chart-divider {{ height:2px; background:var(--border); margin:8px 0 24px 0; }}
+  .chart-jump-link {{ margin-left:auto; flex-shrink:0; color:var(--gold); font-size:1.1em; font-weight:700;
+    text-decoration:none; white-space:nowrap; padding:6px 14px;
+    border:1px solid rgba(230,168,23,0.5); border-radius:8px;
+    background:rgba(230,168,23,0.1); letter-spacing:1px; }}
+  .fixed-nav {{ position:fixed; bottom:24px; right:16px; z-index:9999;
+    display:flex; flex-direction:column; gap:6px; }}
+  .fixed-nav a {{ display:block; text-align:center; padding:11px 10px;
+    background:rgba(13,17,23,0.88); color:var(--gold); font-size:15px;
+    font-weight:700; text-decoration:none; border-radius:10px;
+    border:1px solid rgba(230,168,23,0.45); letter-spacing:2px; min-width:72px; }}
 </style>
 </head>
 <body>
@@ -1290,8 +1303,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
   <div class="header-meta">
     掃描 <strong>{len(price_data)}</strong> 檔 ｜
     強勢確認股 <strong>{len(strong_candidates)}</strong> 檔 ｜
-    起漲預警股 <strong>{len(early_candidates)}</strong> 檔 ｜
-    產生時間 <strong>{datetime.now().strftime('%H:%M')}</strong>
+    起漲預警股 <strong>{len(early_candidates)}</strong> 檔
   </div>
 </div>
 
@@ -1312,9 +1324,9 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     <div class="stat-sub">提前布局候選</div>
   </div>
   <div class="stat-item">
-    <div class="stat-label">今日 Top 1</div>
+    <div class="stat-label">綜合轉強 Top 1</div>
     <div class="stat-value" style="font-size:1.15em">{top1_id} {top1_name}</div>
-    <div class="stat-sub">評分 {top1_score}</div>
+    <div class="stat-sub">綜合分 {top1_score}</div>
   </div>
   <div class="stat-item">
     <div class="stat-label">報告日期</div>
@@ -1325,85 +1337,15 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
 
 <div class="container">
 
-  <!-- ══════════════ 第一區塊：強勢確認股 表格 + K線圖 ══════════════ -->
-  <div class="section">
-    <div class="section-header strong">
-      <div class="section-icon">🔥</div>
-      <div class="section-title-text">
-        <h2>強勢確認股 Top {min(TOP_STRONG, len(strong_candidates))}（追高吃肉用）</h2>
-        <p>量價齊揚 + 法人認同 + 技術突破，明日開盤強勢可積極追進，建議持倉 1~2 天</p>
-      </div>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>排名</th><th>代碼</th><th>名稱</th><th>總分</th>
-          <th>關鍵訊號</th>
-          <th>收盤價</th><th>成交值</th><th>量比</th>
-          <th>MA28乖離</th><th>漲幅%</th><th>RSI14</th>
-          <th>連買天數</th><th>強弱</th><th>營收YoY</th><th>60日漲幅</th>
-        </tr></thead>
-        <tbody>{strong_rows}</tbody>
-      </table>
-    </div>
-    <div class="legend">
-      <div style="display:flex;align-items:center;gap:5px">
-        <span class="dot" style="background:var(--gold)"></span>
-        評分：量比×1.5 + 20日新高×1.2 + MA28乖離×1.0 + 連買天數×2.0 + 漲幅×0.8 + Z-score
-      </div>
-      <div><span style="color:var(--red)">RSI⚠️</span> ≥78 追高需謹慎</div>
-    </div>
-    <!-- ★ 強勢區塊 K線圖（綜合分最高 Top5）-->
-    <div class="charts-grid" style="border-top:2px solid #2d4a7a">
-      <div class="charts-title">🔥 強勢確認股 TOP {min(TOP_CHART, len(strong_charts))} K 線圖（綜合分最高）</div>
-      {strong_chart_html if strong_chart_html else '<p style="color:var(--text3);text-align:center;padding:20px">K線圖產生失敗</p>'}
-    </div>
-  </div>
-
-  <!-- ══════════════ 第二區塊：起漲預警 表格 + K線圖 ══════════════ -->
-  <div class="section">
-    <div class="section-header early">
-      <div class="section-icon">🌱</div>
-      <div class="section-title-text">
-        <h2>即將起漲的潛力股 Top {min(TOP_EARLY, len(early_candidates))}（早布局用）</h2>
-        <p>硬條件過濾 + 財務/籌碼加分排名，提前布局，目標漲幅 15~25%</p>
-      </div>
-    </div>
-    <div class="table-wrap">
-      <table>
-        <thead><tr>
-          <th>排名</th><th>代碼</th><th>名稱</th><th>總分</th>
-          <th>關鍵訊號</th>
-          <th>收盤價</th><th>成交值</th><th>量比</th>
-          <th>MA28乖離</th><th>漲幅%</th><th>RSI14</th>
-          <th>收斂比</th>
-          <th>營收YoY</th><th>法人連買</th><th>60日漲幅</th>
-        </tr></thead>
-        <tbody>{early_rows}</tbody>
-      </table>
-    </div>
-    <div class="legend">
-      <div style="display:flex;align-items:center;gap:5px">
-        <span class="dot" style="background:var(--green)"></span>
-        硬條件通過後加分：營收YoY&gt;20%→+16 ｜ 法人連買≥2天→+24 ｜ 60日漲幅&lt;25%→+22
-      </div>
-      <div>📉收斂比 = 10日均振幅÷20日均振幅（&lt;1.12才通過）</div>
-    </div>
-    <!-- ★ 起漲區塊 K線圖（綜合分最高 Top5）-->
-    <div class="charts-grid" style="border-top:2px solid #2d4a2d">
-      <div class="charts-title">🌱 起漲預警 TOP {min(TOP_CHART, len(early_charts))} K 線圖（綜合分最高）</div>
-      {early_chart_html if early_chart_html else '<p style="color:var(--text3);text-align:center;padding:20px">無起漲預警 K 線圖</p>'}
-    </div>
-  </div>
-
-  <!-- ══════════════ ★ 第三區塊：綜合分 Top 8 ══════════════ -->
-  <div class="section">
+  <!-- ══════════════ 綜合轉強潛力股 表格 ══════════════ -->
+  <div class="section" id="composite-section">
     <div class="section-header composite">
       <div class="section-icon">🔮</div>
       <div class="section-title-text">
         <h2>綜合轉強潛力股 Top {TOP_COMPOSITE}</h2>
         <p>綜合分 = 起漲分 × 0.45 + 強勢分 × 0.55，兼具短線爆發力與基本面支撐</p>
       </div>
+      <a href="#composite-charts" class="chart-jump-link">五檔K線圖點這 ↓</a>
     </div>
     <div class="table-wrap">
       <table>
@@ -1425,10 +1367,110 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
       </div>
       <div>🔮 適合同時具備蓄勢特徵與當日量能的中短線多頭候選</div>
     </div>
-    <!-- ★ 綜合分區塊 K線圖（Top8 前5名）-->
-    <div class="charts-grid" style="border-top:2px solid #5a2d7a">
-      <div class="charts-title">🔮 綜合轉強潛力股 TOP {min(TOP_CHART, len(composite_charts))} K 線圖</div>
+  </div>
+
+  <!-- ══════════════ 即將起漲的潛力股 表格 ══════════════ -->
+  <div class="section" id="early-section">
+    <div class="section-header early">
+      <div class="section-icon">🌱</div>
+      <div class="section-title-text">
+        <h2>即將起漲的潛力股 Top {min(TOP_EARLY, len(early_candidates))}（早布局用）</h2>
+        <p>硬條件過濾 + 財務/籌碼加分排名，提前布局，目標漲幅 15~25%</p>
+      </div>
+      <a href="#early-charts" class="chart-jump-link">五檔K線圖點這 ↓</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>排名</th><th>代碼</th><th>名稱</th><th>總分</th>
+          <th>關鍵訊號</th>
+          <th>收盤價</th><th>成交值</th><th>量比</th>
+          <th>MA28乖離</th><th>漲幅%</th><th>RSI14</th>
+          <th>收斂比</th>
+          <th>營收YoY</th><th>法人連買</th><th>60日漲幅</th>
+        </tr></thead>
+        <tbody>{early_rows}</tbody>
+      </table>
+    </div>
+    <div class="legend">
+      <div style="display:flex;align-items:center;gap:5px">
+        <span class="dot" style="background:var(--green)"></span>
+        硬條件通過後加分：營收YoY&gt;20%→+16 ｜ 法人連買≥2天→+24 ｜ 60日漲幅&lt;25%→+22
+      </div>
+      <div>📉收斂比 = 10日均振幅÷20日均振幅（&lt;1.12才通過）</div>
+    </div>
+  </div>
+
+  <!-- ══════════════ 強勢確認股 表格 ══════════════ -->
+  <div class="section" id="strong-section">
+    <div class="section-header strong">
+      <div class="section-icon">🔥</div>
+      <div class="section-title-text">
+        <h2>強勢確認股 Top {min(TOP_STRONG, len(strong_candidates))}（追高吃肉用）</h2>
+        <p>量價齊揚 + 法人認同 + 技術突破，明日開盤強勢可積極追進，建議持倉 1~2 天</p>
+      </div>
+      <a href="#strong-charts" class="chart-jump-link">五檔K線圖點這 ↓</a>
+    </div>
+    <div class="table-wrap">
+      <table>
+        <thead><tr>
+          <th>排名</th><th>代碼</th><th>名稱</th><th>總分</th>
+          <th>關鍵訊號</th>
+          <th>收盤價</th><th>成交值</th><th>量比</th>
+          <th>MA28乖離</th><th>漲幅%</th><th>RSI14</th>
+          <th>連買天數</th><th>強弱</th><th>營收YoY</th><th>60日漲幅</th>
+        </tr></thead>
+        <tbody>{strong_rows}</tbody>
+      </table>
+    </div>
+    <div class="legend">
+      <div style="display:flex;align-items:center;gap:5px">
+        <span class="dot" style="background:var(--gold)"></span>
+        評分：量比×1.5 + 20日新高×1.2 + MA28乖離×1.0 + 連買天數×2.0 + 漲幅×0.8 + Z-score
+      </div>
+      <div><span style="color:var(--red)">RSI⚠️</span> ≥78 追高需謹慎</div>
+    </div>
+  </div>
+
+  <!-- ══════════════ 綜合轉強潛力股 K線圖 ══════════════ -->
+  <div class="section" id="composite-charts">
+    <div class="section-header composite">
+      <div class="section-icon">🔮</div>
+      <div class="section-title-text">
+        <h2>綜合轉強潛力股 K線圖 Top {min(TOP_CHART, len(composite_charts))}</h2>
+        <p>綜合分最高前5檔走勢圖</p>
+      </div>
+    </div>
+    <div class="charts-grid">
       {composite_chart_html if composite_chart_html else '<p style="color:var(--text3);text-align:center;padding:20px">無綜合分 K 線圖</p>'}
+    </div>
+  </div>
+
+  <!-- ══════════════ 即將起漲的潛力股 K線圖 ══════════════ -->
+  <div class="section" id="early-charts">
+    <div class="section-header early">
+      <div class="section-icon">🌱</div>
+      <div class="section-title-text">
+        <h2>即將起漲的潛力股 K線圖 Top {min(TOP_CHART, len(early_charts))}</h2>
+        <p>起漲預警分數最高前5檔走勢圖</p>
+      </div>
+    </div>
+    <div class="charts-grid">
+      {early_chart_html if early_chart_html else '<p style="color:var(--text3);text-align:center;padding:20px">無起漲預警 K 線圖</p>'}
+    </div>
+  </div>
+
+  <!-- ══════════════ 強勢確認股 K線圖 ══════════════ -->
+  <div class="section" id="strong-charts">
+    <div class="section-header strong">
+      <div class="section-icon">🔥</div>
+      <div class="section-title-text">
+        <h2>強勢確認股 K線圖 Top {min(TOP_CHART, len(strong_charts))}</h2>
+        <p>強勢確認分數最高前5檔走勢圖</p>
+      </div>
+    </div>
+    <div class="charts-grid">
+      {strong_chart_html if strong_chart_html else '<p style="color:var(--text3);text-align:center;padding:20px">K線圖產生失敗</p>'}
     </div>
   </div>
 
@@ -1436,6 +1478,14 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
 <div class="footer">
   上櫃操盤手選股系統 v7.1 ｜ {TODAY_DISP} ｜ 綜合分公式：early×0.45 + total×0.55 ｜ 僅供內部參考，不構成投資建議
 </div>
+
+<!-- 固定右下角導覽 -->
+<nav class="fixed-nav">
+  <a href="#composite-section">綜合轉強</a>
+  <a href="#early-section">即將起漲</a>
+  <a href="#strong-section">強勢確認</a>
+</nav>
+
 </body></html>"""
 
     os.makedirs('output', exist_ok=True)

@@ -1058,7 +1058,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     def yahoo_link(code, color):
         url = f'https://tw.stock.yahoo.com/quote/{code}.TW'
         return (
-            f'<a href="{url}" '
+            f'<a href="{url}" target="_blank" rel="noopener" '
             f'style="color:{color};font-weight:700;text-decoration:none;'
             f'display:inline-flex;align-items:center;gap:3px;white-space:nowrap;'
             f'transition:opacity .15s;" '

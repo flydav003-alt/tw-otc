@@ -1056,7 +1056,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     #   輸出：可點擊的連結，自動跳 https://tw.stock.yahoo.com/quote/2376.TW
     # ════════════════════════════════════════════════════════
     def yahoo_link(code, color):
-        url = f'https://tw.stock.yahoo.com/quote/{code}.TW'
+        url = f'https://tw.stock.yahoo.com/quote/{code}.TWO'
         return (
             f'<a href="{url}" target="_blank" rel="noopener" '
             f'style="color:{color};font-weight:700;text-decoration:none;'

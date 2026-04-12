@@ -969,15 +969,21 @@ def export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df):
 
 # ============================================================
 # ★ 區塊 14：產生 HTML 報告（三區塊重構 + 各區塊嵌入 K線圖）
-# ★ 修改重點（v7.1）
+# ★ 修改重點（v7.1 + Yahoo連結）：
+#   - 新增 yahoo_link() 輔助函式
+#   - build_composite_rows() 代碼欄改為 Yahoo 連結（紫色）
+#   - build_early_rows()     代碼欄改為 Yahoo 連結（綠色）
+#   - build_strong_rows()    代碼欄改為 Yahoo 連結（金色）
+#   - 連結格式：https://tw.stock.yahoo.com/quote/{代碼}.TW
+#   - 每天篩出的任何代碼都自動生成連結，零維護
 # ============================================================
 
 def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
                 strong_candidates, early_candidates,
-                strong_charts, early_charts, composite_charts,  # ★ 新增 composite_charts 參數
-                full_out):                                        # ★ 新增 full_out 參數
+                strong_charts, early_charts, composite_charts,
+                full_out):
 
-    # ── 格式化輔助函式（與原版相同）──
+    # ── 格式化輔助函式 ──
     def fmt_num(v, decimals=2):
         try: return f'{float(v):,.{decimals}f}'
         except: return str(v)
@@ -1036,17 +1042,37 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         return f'<span style="background:{c};color:#fff;padding:2px 10px;border-radius:12px;font-weight:700;font-size:0.85em">{v}</span>'
 
     def composite_badge(v):
-        """綜合分顯示徽章"""
         try:
             f = float(v)
-            color = '#e6a817' if f >= 20 else ('#4A90E2' if f >= 10 else '#8b949e')
             return (f'<span style="background:linear-gradient(135deg,#1a2a3a,#2d4a6a);'
                     f'color:#fff;padding:3px 12px;border-radius:20px;font-weight:700;'
                     f'font-size:1.05em;white-space:nowrap">{f:.2f}</span>')
         except:
             return '<span style="color:#8b949e">-</span>'
 
-    # ── 強勢確認股 表格列（原版維持不變）──
+    # ════════════════════════════════════════════════════════
+    # ★ 新增：自動產生 Yahoo 股市連結輔助函式
+    #   用法：yahoo_link('2376', '#e6a817')
+    #   輸出：可點擊的連結，自動跳 https://tw.stock.yahoo.com/quote/2376.TW
+    # ════════════════════════════════════════════════════════
+    def yahoo_link(code, color):
+        url = f'https://tw.stock.yahoo.com/quote/{code}.TW'
+        return (
+            f'<a href="{url}" target="_blank" rel="noopener" '
+            f'style="color:{color};font-weight:700;text-decoration:none;'
+            f'display:inline-flex;align-items:center;gap:3px;white-space:nowrap;'
+            f'transition:opacity .15s;" '
+            f'onmouseover="this.style.opacity=\'0.7\'" '
+            f'onmouseout="this.style.opacity=\'1\'">'
+            f'<span style="font-size:1.05em">{code}</span>'
+            f'<svg width="10" height="10" viewBox="0 0 10 10" fill="none" '
+            f'xmlns="http://www.w3.org/2000/svg" style="opacity:.55;flex-shrink:0">'
+            f'<path d="M2 8L8 2M8 2H4M8 2V6" stroke="currentColor" '
+            f'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
+            f'</svg></a>'
+        )
+
+    # ── 強勢確認股 表格列 ──
     def build_strong_rows(df):
         rows = ''
         for _, r in df.head(TOP_STRONG).iterrows():
@@ -1066,7 +1092,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
             rows += f"""
         <tr>
           <td style="font-size:1.1em;text-align:center;white-space:nowrap">{medal}</td>
-          <td><span style="font-size:1.05em;font-weight:700;color:#e6a817;white-space:nowrap">{sid}</span></td>
+          <td>{yahoo_link(sid, '#e6a817')}</td>
           <td style="font-weight:600;white-space:nowrap">{r['name']}<br><span style="font-size:0.78em;color:#8b949e">{r.get('industry','')}</span></td>
           <td><span style="background:linear-gradient(135deg,#1a3a5c,#2d6a9f);color:#fff;padding:3px 12px;border-radius:20px;font-weight:700;font-size:1.05em;white-space:nowrap">{fmt_num(r['total_score'])}</span></td>
           <td style="white-space:normal;min-width:130px;max-width:170px;word-break:break-all;line-height:1.8;font-size:0.82em;color:#c9d1d9">{signal_html}</td>
@@ -1083,7 +1109,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         </tr>"""
         return rows
 
-    # ── 起漲預警 表格列（原版維持不變）──
+    # ── 起漲預警 表格列 ──
     def build_early_rows(df):
         if df.empty:
             return '<tr><td colspan="15" style="text-align:center;color:#8b949e;padding:24px">今日無符合起漲預警條件個股</td></tr>'
@@ -1097,7 +1123,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
             rows += f"""
         <tr>
           <td style="font-size:1.1em;text-align:center;white-space:nowrap">{medal}</td>
-          <td><span style="font-size:1.05em;font-weight:700;color:#3fb950;white-space:nowrap">{r['stock_id']}</span></td>
+          <td>{yahoo_link(r['stock_id'], '#3fb950')}</td>
           <td style="font-weight:600;white-space:nowrap">{r['name']}<br><span style="font-size:0.78em;color:#8b949e">{r.get('industry','')}</span></td>
           <td><span style="background:linear-gradient(135deg,#1a3a2c,#2d6a4a);color:#fff;padding:3px 12px;border-radius:20px;font-weight:700;font-size:1.05em;white-space:nowrap">{fmt_num(r['total_ew_score'])}</span></td>
           <td style="white-space:normal;min-width:130px;max-width:170px;word-break:break-all;line-height:1.8;font-size:0.82em;color:#c9d1d9">{signal_html}</td>
@@ -1114,21 +1140,15 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         </tr>"""
         return rows
 
-    # ════════════════════════════════════════════════════════════
-    # ★ 新增：綜合分 Top 8 表格列
-    # 欄位：排名、代碼、名稱、綜合分、關鍵訊號、收盤價、量比、
-    #        MA28乖離、漲幅%、RSI14、營收YoY、法人連買、early_score、total_score
-    # ════════════════════════════════════════════════════════════
+    # ── 綜合轉強 表格列 ──
     def build_composite_rows(full_df, strong_df_ref, early_df_ref):
         if full_df.empty:
             return '<tr><td colspan="14" style="text-align:center;color:#8b949e;padding:24px">無綜合分資料</td></tr>'
 
-        # 取有 composite_score 的列，排序取 Top 8
         comp_df = full_df[full_df['composite_score'] != ''].copy()
         comp_df['_cs'] = pd.to_numeric(comp_df['composite_score'], errors='coerce')
         comp_df = comp_df.dropna(subset=['_cs']).sort_values('_cs', ascending=False).head(TOP_COMPOSITE).reset_index(drop=True)
 
-        # 建立訊號查找
         strong_sig_map = {}
         if not strong_df_ref.empty:
             for _, sr in strong_df_ref.iterrows():
@@ -1145,7 +1165,6 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
             medal   = medals_comp[i] if i < len(medals_comp) else f'#{rank_no}'
             sid     = r['stock_id']
 
-            # 訊號優先取強勢，無則取預警，再無則用 CSV reject_reason
             sig = strong_sig_map.get(sid, '') or early_sig_map.get(sid, '') or r.get('reject_reason','')
             sig_html = f'<span style="font-size:0.82em;color:#c9d1d9">{sig[:60]}</span>'
 
@@ -1158,7 +1177,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
             rows += f"""
         <tr>
           <td style="font-size:1.1em;text-align:center;white-space:nowrap">{medal}</td>
-          <td><span style="font-size:1.05em;font-weight:700;color:#bd8af5;white-space:nowrap">{sid}</span></td>
+          <td>{yahoo_link(sid, '#bd8af5')}</td>
           <td style="font-weight:600;white-space:nowrap">{r['name']}</td>
           <td>{composite_badge(cs_val)}</td>
           <td style="white-space:normal;min-width:120px;max-width:160px">{sig_html}</td>
@@ -1174,7 +1193,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         </tr>"""
         return rows
 
-    # ── K線圖區塊建構（共用函式）──
+    # ── K線圖區塊建構 ──
     def build_chart_html(chart_dict, df_ref, score_col='total_score', label_prefix=''):
         html = ''
         for sid, b64 in chart_dict.items():
@@ -1205,13 +1224,9 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     top1_name  = _comp_top.iloc[0]['name']         if not _comp_top.empty else ''
     top1_score = fmt_num(_comp_top.iloc[0]['_cs']) if not _comp_top.empty else '-'
 
-    # ── 各區塊 K 線圖 ──
-    # 強勢區塊：顯示綜合分最高的 Top5（從 full_out 取綜合分 Top5 的 strong 股票）
-    strong_chart_html    = build_chart_html(strong_charts, strong_df, score_col='total_score')
-    # 起漲區塊：顯示綜合分最高的 Top5（early_charts 依 composite_score 已排序）
-    early_chart_html     = build_chart_html(early_charts,  early_df,  score_col='total_ew_score')
+    strong_chart_html = build_chart_html(strong_charts, strong_df, score_col='total_score')
+    early_chart_html  = build_chart_html(early_charts,  early_df,  score_col='total_ew_score')
 
-    # ★ 綜合分區塊：顯示 composite Top8 前5的 K線圖（composite_charts 已依排序傳入）
     comp_df_tmp = full_out[full_out['composite_score'] != ''].copy()
     comp_df_tmp['_cs'] = pd.to_numeric(comp_df_tmp['composite_score'], errors='coerce')
     comp_df_tmp = comp_df_tmp.dropna(subset=['_cs']).sort_values('_cs', ascending=False).reset_index(drop=True)
@@ -1272,8 +1287,6 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
   tbody tr:nth-child(3) {{ background:rgba(205,127,50,0.04); }}
   tbody tr:last-child td {{ border-bottom:none; }}
   .charts-grid {{ background:var(--bg2); padding:24px; }}
-  .charts-title {{ font-size:0.85em; color:var(--text3); letter-spacing:2px; font-weight:700;
-    margin-bottom:16px; padding-bottom:10px; border-bottom:1px solid var(--border); }}
   .chart-wrap {{ margin-bottom:28px; border:1px solid var(--border); border-radius:8px;
     overflow:hidden; background:#0d1117; }}
   .chart-caption {{ padding:10px 18px; background:var(--bg3); font-size:0.85em;
@@ -1283,7 +1296,6 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
   .dot {{ width:10px; height:10px; border-radius:50%; display:inline-block; }}
   .footer {{ text-align:center; padding:24px; color:var(--text3);
     font-size:0.8em; border-top:1px solid var(--border); }}
-  .chart-divider {{ height:2px; background:var(--border); margin:8px 0 24px 0; }}
   .chart-jump-link {{ margin-left:auto; flex-shrink:0; color:var(--gold); font-size:1.1em; font-weight:700;
     text-decoration:none; white-space:nowrap; padding:6px 14px;
     border:1px solid rgba(230,168,23,0.5); border-radius:8px;
@@ -1304,6 +1316,8 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     掃描 <strong>{len(price_data)}</strong> 檔 ｜
     強勢確認股 <strong>{len(strong_candidates)}</strong> 檔 ｜
     起漲預警股 <strong>{len(early_candidates)}</strong> 檔
+    &nbsp;·&nbsp;
+    <span style="color:var(--purple)">↗ 點擊代碼直接開 Yahoo 股市走勢圖</span>
   </div>
 </div>
 
@@ -1366,6 +1380,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         綜合分公式：起漲分（early_score）× 0.45 + 強勢分（total_score）× 0.55
       </div>
       <div>🔮 適合同時具備蓄勢特徵與當日量能的中短線多頭候選</div>
+      <div style="color:var(--purple)">↗ 點擊紫色代碼直接開 Yahoo 股市走勢圖</div>
     </div>
   </div>
 
@@ -1398,6 +1413,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         硬條件通過後加分：營收YoY&gt;20%→+16 ｜ 法人連買≥2天→+24 ｜ 60日漲幅&lt;25%→+22
       </div>
       <div>📉收斂比 = 10日均振幅÷20日均振幅（&lt;1.12才通過）</div>
+      <div style="color:var(--green)">↗ 點擊綠色代碼直接開 Yahoo 股市走勢圖</div>
     </div>
   </div>
 
@@ -1429,6 +1445,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         評分：量比×1.5 + 20日新高×1.2 + MA28乖離×1.0 + 連買天數×2.0 + 漲幅×0.8 + Z-score
       </div>
       <div><span style="color:var(--red)">RSI⚠️</span> ≥78 追高需謹慎</div>
+      <div style="color:var(--gold)">↗ 點擊金色代碼直接開 Yahoo 股市走勢圖</div>
     </div>
   </div>
 
@@ -1479,7 +1496,6 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
   上櫃操盤手選股系統 v7.1 ｜ {TODAY_DISP} ｜ 綜合分公式：early×0.45 + total×0.55 ｜ 僅供內部參考，不構成投資建議
 </div>
 
-<!-- 固定右下角導覽 -->
 <nav class="fixed-nav">
   <a href="#composite-section">綜合轉強</a>
   <a href="#early-section">即將起漲</a>

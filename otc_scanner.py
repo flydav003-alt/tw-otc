@@ -1058,7 +1058,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     def yahoo_link(code, color):
         url = f'https://tw.stock.yahoo.com/quote/{code}.TW'
         return (
-            f'<a href="{url}" target="_blank" rel="noopener" '
+            f'<a href="{url}" '
             f'style="color:{color};font-weight:700;text-decoration:none;'
             f'display:inline-flex;align-items:center;gap:3px;white-space:nowrap;'
             f'transition:opacity .15s;" '
@@ -1092,10 +1092,9 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
             rows += f"""
         <tr>
           <td style="font-size:1.1em;text-align:center;white-space:nowrap">{medal}</td>
-          <td>{yahoo_link(sid, '#e6a817')}</td>
-          <td style="font-weight:600;white-space:nowrap">{r['name']}<br><span style="font-size:0.78em;color:#8b949e">{r.get('industry','')}</span></td>
+          <td style="font-size:1.5em">{yahoo_link(sid, '#e6a817')}</td>
+          <td style="font-weight:600;white-space:nowrap;font-size:1.5em">{r['name']}<br><span style="font-size:0.52em;color:#8b949e">{r.get('industry','')}</span></td>
           <td><span style="background:linear-gradient(135deg,#1a3a5c,#2d6a9f);color:#fff;padding:3px 12px;border-radius:20px;font-weight:700;font-size:1.05em;white-space:nowrap">{fmt_num(r['total_score'])}</span></td>
-          <td style="white-space:normal;min-width:130px;max-width:170px;word-break:break-all;line-height:1.8;font-size:0.82em;color:#c9d1d9">{signal_html}</td>
           <td style="font-weight:600;white-space:nowrap">{fmt_num(r['close'],1)}</td>
           <td style="white-space:nowrap">{fmt_turnover(r['turnover_today'])}</td>
           <td style="white-space:nowrap">{fmt_num(r['vol_ratio'])}x</td>
@@ -1112,7 +1111,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     # ── 起漲預警 表格列 ──
     def build_early_rows(df):
         if df.empty:
-            return '<tr><td colspan="15" style="text-align:center;color:#8b949e;padding:24px">今日無符合起漲預警條件個股</td></tr>'
+            return '<tr><td colspan="14" style="text-align:center;color:#8b949e;padding:24px">今日無符合起漲預警條件個股</td></tr>'
         rows = ''
         for _, r in df.head(TOP_EARLY).iterrows():
             rank  = int(r['rank'])
@@ -1123,10 +1122,9 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
             rows += f"""
         <tr>
           <td style="font-size:1.1em;text-align:center;white-space:nowrap">{medal}</td>
-          <td>{yahoo_link(r['stock_id'], '#3fb950')}</td>
-          <td style="font-weight:600;white-space:nowrap">{r['name']}<br><span style="font-size:0.78em;color:#8b949e">{r.get('industry','')}</span></td>
+          <td style="font-size:1.5em">{yahoo_link(r['stock_id'], '#3fb950')}</td>
+          <td style="font-weight:600;white-space:nowrap;font-size:1.5em">{r['name']}<br><span style="font-size:0.52em;color:#8b949e">{r.get('industry','')}</span></td>
           <td><span style="background:linear-gradient(135deg,#1a3a2c,#2d6a4a);color:#fff;padding:3px 12px;border-radius:20px;font-weight:700;font-size:1.05em;white-space:nowrap">{fmt_num(r['total_ew_score'])}</span></td>
-          <td style="white-space:normal;min-width:130px;max-width:170px;word-break:break-all;line-height:1.8;font-size:0.82em;color:#c9d1d9">{signal_html}</td>
           <td style="font-weight:600;white-space:nowrap">{fmt_num(r['close'],1)}</td>
           <td style="white-space:nowrap">{fmt_turnover(r['turnover_today'])}</td>
           <td style="white-space:nowrap">{fmt_num(r['vol_ratio'])}x</td>
@@ -1143,7 +1141,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     # ── 綜合轉強 表格列 ──
     def build_composite_rows(full_df, strong_df_ref, early_df_ref):
         if full_df.empty:
-            return '<tr><td colspan="14" style="text-align:center;color:#8b949e;padding:24px">無綜合分資料</td></tr>'
+            return '<tr><td colspan="13" style="text-align:center;color:#8b949e;padding:24px">無綜合分資料</td></tr>'
 
         comp_df = full_df[full_df['composite_score'] != ''].copy()
         comp_df['_cs'] = pd.to_numeric(comp_df['composite_score'], errors='coerce')
@@ -1177,10 +1175,9 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
             rows += f"""
         <tr>
           <td style="font-size:1.1em;text-align:center;white-space:nowrap">{medal}</td>
-          <td>{yahoo_link(sid, '#bd8af5')}</td>
-          <td style="font-weight:600;white-space:nowrap">{r['name']}</td>
+          <td style="font-size:1.5em">{yahoo_link(sid, '#bd8af5')}</td>
+          <td style="font-weight:600;white-space:nowrap;font-size:1.5em">{r['name']}</td>
           <td>{composite_badge(cs_val)}</td>
-          <td style="white-space:normal;min-width:120px;max-width:160px">{sig_html}</td>
           <td style="font-weight:600;white-space:nowrap">{fmt_num(r['close'],1)}</td>
           <td style="white-space:nowrap">{fmt_num(r['vol_ratio'])}x</td>
           <td style="white-space:nowrap">{pct_color(r['ma28_bias_pct'])}</td>
@@ -1213,7 +1210,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
 
     # ── 建構各區塊 ──
     strong_rows    = (build_strong_rows(strong_df) if not strong_df.empty
-                      else '<tr><td colspan="15" style="text-align:center;color:#8b949e;padding:24px">今日無符合條件個股</td></tr>')
+                      else '<tr><td colspan="14" style="text-align:center;color:#8b949e;padding:24px">今日無符合條件個股</td></tr>')
     early_rows     = build_early_rows(early_df)
     composite_rows = build_composite_rows(full_out, strong_df, early_df)
 
@@ -1359,13 +1356,12 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         <h2>綜合轉強潛力股 Top {TOP_COMPOSITE}</h2>
         <p>綜合分 = 起漲分 × 0.45 + 強勢分 × 0.55，兼具短線爆發力與基本面支撐</p>
       </div>
-      <a href="#composite-charts" class="chart-jump-link">五檔K線圖點這 ↓</a>
+      <a href="#composite-charts" class="chart-jump-link">K線圖 ↓</a>
     </div>
     <div class="table-wrap">
       <table>
         <thead><tr>
           <th>排名</th><th>代碼</th><th>名稱</th><th>綜合分</th>
-          <th>關鍵訊號</th>
           <th>收盤價</th><th>量比</th>
           <th>MA28乖離</th><th>漲幅%</th><th>RSI14</th>
           <th>營收YoY</th><th>法人連買</th>
@@ -1392,13 +1388,12 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         <h2>即將起漲的潛力股 Top {min(TOP_EARLY, len(early_candidates))}（早布局用）</h2>
         <p>硬條件過濾 + 財務/籌碼加分排名，提前布局，目標漲幅 15~25%</p>
       </div>
-      <a href="#early-charts" class="chart-jump-link">五檔K線圖點這 ↓</a>
+      <a href="#early-charts" class="chart-jump-link">K線圖 ↓</a>
     </div>
     <div class="table-wrap">
       <table>
         <thead><tr>
           <th>排名</th><th>代碼</th><th>名稱</th><th>總分</th>
-          <th>關鍵訊號</th>
           <th>收盤價</th><th>成交值</th><th>量比</th>
           <th>MA28乖離</th><th>漲幅%</th><th>RSI14</th>
           <th>收斂比</th>
@@ -1425,13 +1420,12 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         <h2>強勢確認股 Top {min(TOP_STRONG, len(strong_candidates))}（追高吃肉用）</h2>
         <p>量價齊揚 + 法人認同 + 技術突破，明日開盤強勢可積極追進，建議持倉 1~2 天</p>
       </div>
-      <a href="#strong-charts" class="chart-jump-link">五檔K線圖點這 ↓</a>
+      <a href="#strong-charts" class="chart-jump-link">K線圖 ↓</a>
     </div>
     <div class="table-wrap">
       <table>
         <thead><tr>
           <th>排名</th><th>代碼</th><th>名稱</th><th>總分</th>
-          <th>關鍵訊號</th>
           <th>收盤價</th><th>成交值</th><th>量比</th>
           <th>MA28乖離</th><th>漲幅%</th><th>RSI14</th>
           <th>連買天數</th><th>強弱</th><th>營收YoY</th><th>60日漲幅</th>

@@ -1231,7 +1231,7 @@ tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
     </div>
   </div>
   <div class="table-wrap">
-    <table><thead><tr>{TH_COMMON}</tr></thead><tbody>{cr}</tbody></table>
+    <table><thead></thead><tbody>{cr}</tbody></table>
   </div>
   <div class="legend">
     <div><span class="dot" style="background:var(--purple)"></span> 綜合分 = early×0.45 + total×0.55</div>
@@ -1249,7 +1249,7 @@ tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
     </div>
   </div>
   <div class="table-wrap">
-    <table><thead><tr>{TH_COMMON}</tr></thead><tbody>{er}</tbody></table>
+    <table><thead></thead><tbody>{er}</tbody></table>
   </div>
   <div class="legend">
     <div><span class="dot" style="background:var(--green)"></span> YoY&gt;20%→+16 ｜ 法人連買≥2→+24 ｜ 60日&lt;25%→+22</div>
@@ -1267,7 +1267,7 @@ tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
     </div>
   </div>
   <div class="table-wrap">
-    <table><thead><tr>{TH_COMMON}</tr></thead><tbody>{sr}</tbody></table>
+    <table><thead></thead><tbody>{sr}</tbody></table>
   </div>
   <div class="legend">
     <div><span class="dot" style="background:var(--gold)"></span> 量比×1.6 + 20日新高×1.4 + MA28乖離×1.0 + 連買×3.0 + 漲幅×0.8 + Z-score</div>
@@ -1406,19 +1406,19 @@ def main():
     comp_chart_df['_cs'] = pd.to_numeric(comp_chart_df['composite_score'], errors='coerce')
     comp_chart_sids = (comp_chart_df.dropna(subset=['_cs'])
                        .sort_values('_cs', ascending=False)
-                       .head(TOP_CHART)['stock_id'].tolist())
+                       .head(TOP_COMPOSITE)['stock_id'].tolist())
 
-    # ── K線圖 ──
+    # ── K線圖：各區全數繪製，對應顯示上限 ──
     print('\n[K線圖] 繪製中...')
     strong_charts, early_charts, composite_charts = {}, {}, {}
 
     if not strong_df.empty:
-        for sid in strong_df['stock_id'].head(TOP_CHART).tolist():
+        for sid in strong_df['stock_id'].head(TOP_STRONG).tolist():
             b = draw_kline(sid, price_data, name_map, font_path, '強勢確認')
             if b: strong_charts[sid] = b
 
     if not early_df.empty:
-        for sid in early_df['stock_id'].head(TOP_CHART).tolist():
+        for sid in early_df['stock_id'].head(TOP_EARLY).tolist():
             b = draw_kline(sid, price_data, name_map, font_path, '起漲預警')
             if b: early_charts[sid] = b
 

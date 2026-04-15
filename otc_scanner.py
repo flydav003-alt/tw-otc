@@ -120,6 +120,15 @@ BATCH_SIZE  = 40
 BATCH_DELAY = 1.5
 ERROR_LOG   = "error_log.txt"
 
+# ★ 統一匯出欄位（19欄，與TSE對齊）
+EXPORT_COLS = [
+    'stock_id', 'name', 'close', 'vol_ratio', 'daily_return_pct',
+    'ma28_bias_pct', 'turnover_億', 'rsi14', 'inst_consec_days',
+    'yoy_revenue_pct', 'foreign_today', 'trust_today',
+    'foreign_3d', 'trust_3d', 'is_strong_confirm', 'is_early_breakout',
+    'total_score', 'early_score', 'composite_score'
+]
+
 TODAY      = datetime.today()
 END_DATE   = TODAY.strftime('%Y-%m-%d')
 START_DATE = (TODAY - timedelta(days=400)).strftime('%Y-%m-%d')
@@ -827,6 +836,9 @@ def export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df):
     full_rows = []
     for sid, df in price_data.items():
         if df is None or df.empty: continue
+        is_strong = sid in strong_set
+        is_early  = sid in early_set
+        if not is_strong and not is_early: continue  # 只匯出入選股
         last    = df.iloc[-1].to_dict()
         vm5     = last.get('vol_ma5',0) or 0
         close   = last.get('close',0)
@@ -838,23 +850,21 @@ def export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df):
         info    = inst_data.get(sid,{})
         inst_c  = max(info.get('foreign_consec',0), info.get('trust_consec',0))
         yoy_rev = fin_data.get(sid, None)
-        is_strong = sid in strong_set
-        is_early  = sid in early_set
-        ts = strong_score_map.get(sid,'')
-        es = early_score_map.get(sid,'')
+        ts = strong_score_map.get(sid, 0)
+        es = early_score_map.get(sid, 0)
         try:
-            ts_f = float(ts) if ts!='' else None
-            es_f = float(es) if es!='' else None
-            if ts_f is not None and es_f is not None:
+            ts_f = float(ts) if ts else 0.0
+            es_f = float(es) if es else 0.0
+            if is_strong and is_early:
                 composite = round(es_f*0.45 + ts_f*0.55, 2)
-            elif ts_f is not None:
+            elif is_strong:
                 composite = round(ts_f*0.55, 2)
-            elif es_f is not None:
+            elif is_early:
                 composite = round(es_f*0.45, 2)
             else:
-                composite = ''
+                composite = 0.0
         except:
-            composite = ''
+            composite = 0.0
 
         full_rows.append({
             'stock_id': sid, 'name': name_map.get(sid,sid),
@@ -870,17 +880,18 @@ def export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df):
             'trust_3d':      info.get('trust_3d',0),
             'is_strong_confirm': is_strong,
             'is_early_breakout': is_early,
-            'total_score': ts, 'early_score': es, 'composite_score': composite,
+            'total_score': ts if ts else 0,
+            'early_score': es if es else 0,
+            'composite_score': composite,
         })
 
     full_out = (pd.DataFrame(full_rows)
-                .sort_values(['is_strong_confirm','is_early_breakout','composite_score'],
-                             ascending=[False,False,False])
-                .reset_index(drop=True))
+                .sort_values('composite_score', ascending=False)
+                .reset_index(drop=True)) if full_rows else pd.DataFrame(columns=EXPORT_COLS)
     os.makedirs('output', exist_ok=True)
-    csv_fname = f'output/full_filtered_{TODAY_STR}.csv'
-    full_out.to_csv(csv_fname, index=False, encoding='utf-8-sig')
-    print(f'✅ CSV：{csv_fname}（{len(full_out)} 筆）')
+    csv_fname = f'output/otc_{TODAY_STR}.csv'
+    full_out[EXPORT_COLS].to_csv(csv_fname, index=False, encoding='utf-8-sig')
+    print(f'✅ CSV：{csv_fname}（{len(full_out)} 筆，僅入選股）')
     return csv_fname, full_out
 
 
@@ -1345,7 +1356,7 @@ def send_email(csv_fname, html_fname, strong_df, early_df, strong_candidates, ea
     body = f'上櫃操盤手 v7.2 {TODAY_DISP}\n掃描{len(price_data_global)}檔'
     if GITHUB_PAGES_URL: body += f'\n報告：{GITHUB_PAGES_URL}'
     msg.attach(MIMEText(body, 'plain', 'utf-8'))
-    for fpath in [csv_fname, html_fname]:
+    for fpath in [csv_fname]:  # 只附加CSV，HTML請至GitHub Pages查看
         if fpath and os.path.exists(fpath):
             with open(fpath, 'rb') as f:
                 part = MIMEBase('application', 'octet-stream')

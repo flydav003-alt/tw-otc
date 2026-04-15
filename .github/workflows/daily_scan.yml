@@ -54,33 +54,33 @@ jobs:
           # 確保 docs 資料夾存在
           mkdir -p docs
 
-          # 找到 Python 產生的 HTML，直接複製到 docs/index.html
+          # 找到 Python 產生的 HTML，複製到 docs/index.html（GitHub Pages用）
           NEW_HTML=$(ls output/OTC_report_*.html 2>/dev/null | head -1)
-          if [ -z "$NEW_HTML" ]; then
-            echo "❌ 找不到 HTML 檔案，Python 執行可能失敗"
+          if [ -n "$NEW_HTML" ]; then
+            cp "$NEW_HTML" docs/index.html
+            echo "✅ 已複製 HTML 到 docs/index.html"
+          else
+            echo "⚠️ 找不到 HTML 檔案，跳過 GitHub Pages 更新"
+          fi
+
+          # 清掉舊 CSV，加入最新 CSV
+          git rm -f output/otc_*.csv 2>/dev/null || true
+          git rm -f output/full_filtered_*.csv 2>/dev/null || true
+          LATEST_CSV=$(ls output/otc_*.csv 2>/dev/null | head -1)
+          if [ -n "$LATEST_CSV" ]; then
+            git add "$LATEST_CSV"
+            echo "✅ 已加入 CSV：$LATEST_CSV"
+          else
+            echo "❌ 找不到 CSV 檔案，Python 執行可能失敗"
             exit 1
           fi
 
-          echo "✅ 找到 HTML：$NEW_HTML"
-          cp "$NEW_HTML" docs/index.html
-          echo "✅ 已複製到 docs/index.html"
-
-          # 也把 CSV 複製到 docs/
-          LATEST_CSV=$(ls output/full_filtered_*.csv 2>/dev/null | head -1)
-          if [ -n "$LATEST_CSV" ]; then
-            cp "$LATEST_CSV" docs/report.csv
-            echo "✅ 已複製 CSV 到 docs/report.csv"
-          fi
-
-          # 強制加入所有 docs 底下的檔案
-          git add -f docs/
+          # 加入 GitHub Pages HTML
+          git add docs/index.html 2>/dev/null || true
 
           # 顯示狀態
           echo "=== git status ==="
           git status
-
-          echo "=== git diff --cached --stat ==="
-          git diff --cached --stat
 
           # 有變動才 commit
           if git diff --cached --quiet; then

@@ -995,7 +995,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         url = f'https://tw.stock.yahoo.com/quote/{code}.TWO'
         return (
             f'<a href="{url}" target="_blank" rel="noopener" '
-            f'style="color:{color};font-weight:700;text-decoration:none;'
+            f'style="color:{color};font-weight:700;text-decoration:none;font-size:1.7em;'
             f'display:inline-flex;align-items:center;gap:3px;" '
             f'onmouseover="this.style.opacity=\'0.75\'" '
             f'onmouseout="this.style.opacity=\'1\'">'

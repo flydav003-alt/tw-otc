@@ -2,7 +2,7 @@ name: 上櫃選股系統 每日自動執行
 
 on:
   schedule:
-    - cron: '14 07 * * 1-5'
+    - cron: '49 06 * * 1-5'
   workflow_dispatch:
 
 jobs:

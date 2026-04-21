@@ -1152,6 +1152,47 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     top1_name  = comp_df2.iloc[0]['name']           if not comp_df2.empty else ''
     top1_score = fn(comp_df2.iloc[0]['_cs'])        if not comp_df2.empty else '-'
 
+# ── 快速瀏覽摘要 ──
+    def make_chip(sid, name, section_id, is_star):
+        star_class = ' st' if is_star else ''
+        return (f'<a class="chip{star_class}" href="#{section_id}">'
+                f'<span class="cd">{sid}</span>'
+                f'<span class="nm">{name}</span>'
+                f'</a>')
+
+    comp_chips = ''
+    for _, r in comp_df2.iterrows():
+        sid  = r['stock_id']
+        star = check_star(r)
+        comp_chips += make_chip(sid, r['name'], 'composite-section', star)
+
+    early_chips = ''
+    if not early_df.empty:
+        for _, r in early_df.head(TOP_EARLY).iterrows():
+            sid  = r['stock_id']
+            star = check_star(r)
+            early_chips += make_chip(sid, r['name'], 'early-section', star)
+
+    strong_chips = ''
+    if not strong_df.empty:
+        early_ids_set = set(early_df['stock_id'].tolist()) if not early_df.empty else set()
+        for _, r in strong_df.head(TOP_STRONG).iterrows():
+            sid  = r['stock_id']
+            star = check_star({
+                'is_early_breakout': sid in early_ids_set,
+                'daily_return_pct':  r.get('daily_return_pct', 0),
+                'inst_consec_days':  r.get('inst_consec', 0),
+                'foreign_3d':        r.get('foreign_3d', 0),
+                'trust_3d':          r.get('trust_3d', 0),
+                'trust_today':       r.get('trust_today', 0),
+                'vol_ratio':         r.get('vol_ratio', 0),
+                'ma28_bias':         r.get('ma28_bias', 0),
+                'rsi14':             r.get('rsi14', 0),
+                'yoy_revenue_pct':   fin_data.get(sid, None),
+                'turnover_億':       r.get('turnover_億', 0),
+            })
+            strong_chips += make_chip(sid, r['name'], 'strong-section', star)
+
     html = f'''<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
@@ -1232,6 +1273,66 @@ tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
 </div>
 
 <div class="container">
+
+<div class="summary-block">
+<style>
+.summary-block{{padding:20px 32px 4px;max-width:1440px;margin:0 auto;}}
+.ss{{margin-bottom:10px;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--bg2);}}
+.sh{{display:flex;align-items:center;gap:10px;padding:9px 16px;background:var(--bg3);}}
+.sh .ttl{{font-size:13.5px;font-weight:700;color:var(--text);}}
+.sh .bdg{{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;white-space:nowrap;}}
+.sh .sub{{font-size:11px;color:var(--text3);margin-left:auto;}}
+.cg{{padding:9px 14px 11px;display:flex;flex-wrap:wrap;gap:6px;}}
+.chip{{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;
+  border:1px solid var(--border);font-size:12.5px;color:var(--text2);
+  background:var(--bg);white-space:nowrap;text-decoration:none;transition:opacity .15s;}}
+.chip:hover{{opacity:.65;}}
+.chip .cd{{font-weight:700;}}
+.chip .nm{{color:var(--text3);}}
+.chip.st .cd{{color:#e6a817;}}
+.chip.st{{border-color:rgba(230,168,23,.4);background:rgba(230,168,23,.08);}}
+.s-comp .sh{{border-left:3px solid var(--purple);}}
+.s-early .sh{{border-left:3px solid var(--green);}}
+.s-strong .sh{{border-left:3px solid var(--gold);}}
+.bdg-c{{background:rgba(189,138,245,.15);color:var(--purple);}}
+.bdg-e{{background:rgba(63,185,80,.12);color:var(--green);}}
+.bdg-s{{background:rgba(230,168,23,.12);color:var(--gold);}}
+.sum-legend{{font-size:11px;color:var(--text3);padding:2px 2px 8px;display:flex;align-items:center;gap:6px;}}
+.sum-dot{{width:7px;height:7px;border-radius:50%;background:var(--gold);display:inline-block;opacity:.8;}}
+</style>
+
+<div class="ss s-comp">
+  <div class="sh">
+    <span style="width:7px;height:7px;border-radius:50%;background:var(--purple);display:inline-block;flex-shrink:0;"></span>
+    <span class="ttl">綜合轉強潛力股</span>
+    <span class="bdg bdg-c">Top {TOP_COMPOSITE}</span>
+    <span class="sub">↓ 點擊跳至詳細表</span>
+  </div>
+  <div class="cg">{comp_chips}</div>
+</div>
+
+<div class="ss s-early">
+  <div class="sh">
+    <span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;flex-shrink:0;"></span>
+    <span class="ttl">即將起漲潛力股</span>
+    <span class="bdg bdg-e">Top {TOP_EARLY}</span>
+    <span class="sub">↓ 點擊跳至詳細表</span>
+  </div>
+  <div class="cg">{early_chips}</div>
+</div>
+
+<div class="ss s-strong">
+  <div class="sh">
+    <span style="width:7px;height:7px;border-radius:50%;background:var(--gold);display:inline-block;flex-shrink:0;"></span>
+    <span class="ttl">強勢確認股</span>
+    <span class="bdg bdg-s">Top {TOP_STRONG}</span>
+    <span class="sub">↓ 點擊跳至詳細表</span>
+  </div>
+  <div class="cg">{strong_chips}</div>
+</div>
+
+<div class="sum-legend"><span class="sum-dot"></span>金色底 = ⭐ 精選條件全符合 ｜ 點擊標籤跳至對應詳細表</div>
+</div>
 
 <div class="section" id="composite-section">
   <div class="section-header composite">

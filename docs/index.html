@@ -61,7 +61,7 @@ tbody tr:nth-child(1 of .data-row){background:rgba(230,168,23,.07);}
   <div class="header-label">上櫃操盤手 · 選股系統 v7.2</div>
   <h1>上櫃操盤手 — <span>2026/04/21</span> 收盤選股報告</h1>
   <div class="header-meta">
-    掃描 <strong>198</strong> 檔 ｜
+    掃描 <strong>197</strong> 檔 ｜
     強勢確認 <strong>55</strong> 檔 ｜
     起漲預警 <strong>22</strong> 檔
     &nbsp;·&nbsp;
@@ -70,7 +70,7 @@ tbody tr:nth-child(1 of .data-row){background:rgba(230,168,23,.07);}
 </div>
 
 <div class="stats-bar">
-  <div class="stat-item"><div class="stat-label">掃描標的</div><div class="stat-value">198</div><div class="stat-sub">上櫃活躍股</div></div>
+  <div class="stat-item"><div class="stat-label">掃描標的</div><div class="stat-value">197</div><div class="stat-sub">上櫃活躍股</div></div>
   <div class="stat-item"><div class="stat-label">強勢確認股</div><div class="stat-value" style="color:var(--coral)">55</div><div class="stat-sub">Top 10 顯示</div></div>
   <div class="stat-item"><div class="stat-label">起漲預警股</div><div class="stat-value" style="color:var(--green)">22</div><div class="stat-sub">Top 15 顯示</div></div>
   <div class="stat-item"><div class="stat-label">綜合轉強 TOP1</div><div class="stat-value" style="font-size:1.15em;color:var(--purple)">5904 寶雅</div><div class="stat-sub">綜合分 47.69</div></div>
@@ -78,6 +78,66 @@ tbody tr:nth-child(1 of .data-row){background:rgba(230,168,23,.07);}
 </div>
 
 <div class="container">
+
+<div class="summary-block">
+<style>
+.summary-block{padding:20px 32px 4px;max-width:1440px;margin:0 auto;}
+.ss{margin-bottom:10px;border:1px solid var(--border);border-radius:12px;overflow:hidden;background:var(--bg2);}
+.sh{display:flex;align-items:center;gap:10px;padding:9px 16px;background:var(--bg3);}
+.sh .ttl{font-size:13.5px;font-weight:700;color:var(--text);}
+.sh .bdg{font-size:11px;font-weight:700;padding:2px 9px;border-radius:20px;white-space:nowrap;}
+.sh .sub{font-size:11px;color:var(--text3);margin-left:auto;}
+.cg{padding:9px 14px 11px;display:flex;flex-wrap:wrap;gap:6px;}
+.chip{display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:20px;
+  border:1px solid var(--border);font-size:12.5px;color:var(--text2);
+  background:var(--bg);white-space:nowrap;text-decoration:none;transition:opacity .15s;}
+.chip:hover{opacity:.65;}
+.chip .cd{font-weight:700;}
+.chip .nm{color:var(--text3);}
+.chip.st .cd{color:#e6a817;}
+.chip.st{border-color:rgba(230,168,23,.4);background:rgba(230,168,23,.08);}
+.s-comp .sh{border-left:3px solid var(--purple);}
+.s-early .sh{border-left:3px solid var(--green);}
+.s-strong .sh{border-left:3px solid var(--gold);}
+.bdg-c{background:rgba(189,138,245,.15);color:var(--purple);}
+.bdg-e{background:rgba(63,185,80,.12);color:var(--green);}
+.bdg-s{background:rgba(230,168,23,.12);color:var(--gold);}
+.sum-legend{font-size:11px;color:var(--text3);padding:2px 2px 8px;display:flex;align-items:center;gap:6px;}
+.sum-dot{width:7px;height:7px;border-radius:50%;background:var(--gold);display:inline-block;opacity:.8;}
+</style>
+
+<div class="ss s-comp">
+  <div class="sh">
+    <span style="width:7px;height:7px;border-radius:50%;background:var(--purple);display:inline-block;flex-shrink:0;"></span>
+    <span class="ttl">綜合轉強潛力股</span>
+    <span class="bdg bdg-c">Top 15</span>
+    <span class="sub">↓ 點擊跳至詳細表</span>
+  </div>
+  <div class="cg"><a class="chip" href="#composite-section"><span class="cd">5904</span><span class="nm">寶雅</span></a><a class="chip" href="#composite-section"><span class="cd">3551</span><span class="nm">世禾</span></a><a class="chip" href="#composite-section"><span class="cd">6138</span><span class="nm">茂達</span></a><a class="chip" href="#composite-section"><span class="cd">4768</span><span class="nm">晶呈科技</span></a><a class="chip" href="#composite-section"><span class="cd">6121</span><span class="nm">新普</span></a><a class="chip" href="#composite-section"><span class="cd">5309</span><span class="nm">系統電</span></a><a class="chip" href="#composite-section"><span class="cd">3491</span><span class="nm">昇達科</span></a><a class="chip" href="#composite-section"><span class="cd">5351</span><span class="nm">鈺創</span></a><a class="chip" href="#composite-section"><span class="cd">3265</span><span class="nm">台星科</span></a><a class="chip" href="#composite-section"><span class="cd">3211</span><span class="nm">順達</span></a><a class="chip" href="#composite-section"><span class="cd">4749</span><span class="nm">新應材</span></a><a class="chip" href="#composite-section"><span class="cd">8936</span><span class="nm">國統</span></a><a class="chip" href="#composite-section"><span class="cd">3227</span><span class="nm">原相</span></a><a class="chip" href="#composite-section"><span class="cd">8255</span><span class="nm">朋程</span></a><a class="chip" href="#composite-section"><span class="cd">3402</span><span class="nm">漢科</span></a></div>
+</div>
+
+<div class="ss s-early">
+  <div class="sh">
+    <span style="width:7px;height:7px;border-radius:50%;background:var(--green);display:inline-block;flex-shrink:0;"></span>
+    <span class="ttl">即將起漲潛力股</span>
+    <span class="bdg bdg-e">Top 15</span>
+    <span class="sub">↓ 點擊跳至詳細表</span>
+  </div>
+  <div class="cg"><a class="chip" href="#early-section"><span class="cd">5351</span><span class="nm">鈺創</span></a><a class="chip" href="#early-section"><span class="cd">4749</span><span class="nm">新應材</span></a><a class="chip" href="#early-section"><span class="cd">8936</span><span class="nm">國統</span></a><a class="chip" href="#early-section"><span class="cd">5904</span><span class="nm">寶雅</span></a><a class="chip" href="#early-section"><span class="cd">3227</span><span class="nm">原相</span></a><a class="chip" href="#early-section"><span class="cd">8255</span><span class="nm">朋程</span></a><a class="chip" href="#early-section"><span class="cd">6121</span><span class="nm">新普</span></a><a class="chip" href="#early-section"><span class="cd">6138</span><span class="nm">茂達</span></a><a class="chip" href="#early-section"><span class="cd">5309</span><span class="nm">系統電</span></a><a class="chip" href="#early-section"><span class="cd">3402</span><span class="nm">漢科</span></a><a class="chip" href="#early-section"><span class="cd">5347</span><span class="nm">世界</span></a><a class="chip" href="#early-section"><span class="cd">3551</span><span class="nm">世禾</span></a><a class="chip" href="#early-section"><span class="cd">4768</span><span class="nm">晶呈科技</span></a><a class="chip" href="#early-section"><span class="cd">3491</span><span class="nm">昇達科</span></a><a class="chip" href="#early-section"><span class="cd">6265</span><span class="nm">方土昶</span></a></div>
+</div>
+
+<div class="ss s-strong">
+  <div class="sh">
+    <span style="width:7px;height:7px;border-radius:50%;background:var(--gold);display:inline-block;flex-shrink:0;"></span>
+    <span class="ttl">強勢確認股</span>
+    <span class="bdg bdg-s">Top 10</span>
+    <span class="sub">↓ 點擊跳至詳細表</span>
+  </div>
+  <div class="cg"><a class="chip" href="#strong-section"><span class="cd">6217</span><span class="nm">中探針</span></a><a class="chip" href="#strong-section"><span class="cd">6788</span><span class="nm">華景電</span></a><a class="chip" href="#strong-section"><span class="cd">6173</span><span class="nm">信昌電</span></a><a class="chip" href="#strong-section"><span class="cd">6510</span><span class="nm">精測</span></a><a class="chip" href="#strong-section"><span class="cd">6274</span><span class="nm">台燿</span></a><a class="chip" href="#strong-section"><span class="cd">3455</span><span class="nm">由田</span></a><a class="chip" href="#strong-section"><span class="cd">6488</span><span class="nm">環球晶</span></a><a class="chip" href="#strong-section"><span class="cd">3264</span><span class="nm">欣銓</span></a><a class="chip" href="#strong-section"><span class="cd">5536</span><span class="nm">聖暉*</span></a><a class="chip" href="#strong-section"><span class="cd">6679</span><span class="nm">鈺太</span></a></div>
+</div>
+
+<div class="sum-legend"><span class="sum-dot"></span>金色底 = ⭐ 精選條件全符合 ｜ 點擊標籤跳至對應詳細表</div>
+</div>
 
 <div class="section" id="composite-section">
   <div class="section-header composite">

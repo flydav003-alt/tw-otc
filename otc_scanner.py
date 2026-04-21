@@ -1026,11 +1026,12 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     TH_COMMON = ('<th>排名</th><th>代碼</th><th>名稱</th><th>收盤價</th><th>漲幅%</th>'
                  '<th>量比</th><th>RSI14</th><th>MA28乖離</th><th>營收YoY</th><th>法人連買</th>')
 
-    def row_inline_chart(sid, charts):
+    def row_inline_chart(sid, charts, section_prefix=''):
         b64 = charts.get(sid)
         if not b64: return ''
-        return (
-            f'<tr style="background:#0d1117;">'
+        anchor_id = f'{section_prefix}-{sid}' if section_prefix else sid
+        return (            f'<tr style="background:#0d1117;">'
+            f'<tr id="{anchor_id}" style="background:#0d1117;">'
             f'<td colspan="10" style="padding:6px 16px 10px;">'
             f'<img src="data:image/png;base64,{b64}" '
             f'style="width:100%;max-width:1200px;border-radius:6px;display:block;"/>'
@@ -1072,7 +1073,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
                 f'<td>{ic}天</td>'
                 f'</tr>'
             )
-            cr += row_inline_chart(sid, composite_charts)
+          cr += row_inline_chart(sid, composite_charts, 'comp')
     else:
         cr = '<tr><td colspan="10" style="text-align:center;color:#8b949e;padding:24px">無綜合分資料</td></tr>'
 
@@ -1101,7 +1102,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
                 f'<td>{r["inst_consec_days"]}天</td>'
                 f'</tr>'
             )
-            er += row_inline_chart(sid, early_charts)
+            er += row_inline_chart(sid, early_charts, 'early')
     else:
         er = '<tr><td colspan="10" style="text-align:center;color:#8b949e;padding:24px">今日無起漲預警</td></tr>'
 
@@ -1144,7 +1145,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
                 f'<td>{r["inst_consec"]}天</td>'
                 f'</tr>'
             )
-            sr += row_inline_chart(sid, strong_charts)
+            sr += row_inline_chart(sid, strong_charts, 'strong')
     else:
         sr = '<tr><td colspan="10" style="text-align:center;color:#8b949e;padding:24px">今日無符合條件個股</td></tr>'
 
@@ -1153,25 +1154,27 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     top1_score = fn(comp_df2.iloc[0]['_cs'])        if not comp_df2.empty else '-'
 
 # ── 快速瀏覽摘要 ──
-    def make_chip(sid, name, section_id, is_star):
+    def make_chip(sid, name, anchor_id, is_star):
         star_class = ' st' if is_star else ''
-        return (f'<a class="chip{star_class}" href="#{section_id}">'
+        return (f'<a class="chip{star_class}" href="#{anchor_id}">'
                 f'<span class="cd">{sid}</span>'
                 f'<span class="nm">{name}</span>'
                 f'</a>')
 
-    comp_chips = ''
+comp_chips = ''
     for _, r in comp_df2.iterrows():
-        sid  = r['stock_id']
-        star = check_star(r)
-        comp_chips += make_chip(sid, r['name'], 'composite-section', star)
+        sid    = r['stock_id']
+        star   = check_star(r)
+        anchor = f'comp-{sid}' if sid in composite_charts else 'composite-section'
+        comp_chips += make_chip(sid, r['name'], anchor, star)
 
     early_chips = ''
     if not early_df.empty:
         for _, r in early_df.head(TOP_EARLY).iterrows():
-            sid  = r['stock_id']
-            star = check_star(r)
-            early_chips += make_chip(sid, r['name'], 'early-section', star)
+            sid    = r['stock_id']
+            star   = check_star(r)
+            anchor = f'early-{sid}' if sid in early_charts else 'early-section'
+            early_chips += make_chip(sid, r['name'], anchor, star)
 
     strong_chips = ''
     if not strong_df.empty:
@@ -1191,7 +1194,8 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
                 'yoy_revenue_pct':   fin_data.get(sid, None),
                 'turnover_億':       r.get('turnover_億', 0),
             })
-            strong_chips += make_chip(sid, r['name'], 'strong-section', star)
+            anchor = f'strong-{sid}' if sid in strong_charts else 'strong-section'
+            strong_chips += make_chip(sid, r['name'], anchor, star)
 
     html = f'''<!DOCTYPE html>
 <html lang="zh-TW">

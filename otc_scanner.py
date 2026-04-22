@@ -1026,11 +1026,12 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     TH_COMMON = ('<th>排名</th><th>代碼</th><th>名稱</th><th>收盤價</th><th>漲幅%</th>'
                  '<th>量比</th><th>RSI14</th><th>MA28乖離</th><th>營收YoY</th><th>法人連買</th>')
 
+    # ── FIX 1: row_inline_chart — 移除重複 <tr> tag ──
     def row_inline_chart(sid, charts, section_prefix=''):
         b64 = charts.get(sid)
         if not b64: return ''
         anchor_id = f'{section_prefix}-{sid}' if section_prefix else sid
-        return (            f'<tr style="background:#0d1117;">'
+        return (
             f'<tr id="{anchor_id}" style="background:#0d1117;">'
             f'<td colspan="10" style="padding:6px 16px 10px;">'
             f'<img src="data:image/png;base64,{b64}" '
@@ -1073,7 +1074,8 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
                 f'<td>{ic}天</td>'
                 f'</tr>'
             )
-          cr += row_inline_chart(sid, composite_charts, 'comp')
+            # FIX 2: 縮排對齊迴圈內層
+            cr += row_inline_chart(sid, composite_charts, 'comp')
     else:
         cr = '<tr><td colspan="10" style="text-align:center;color:#8b949e;padding:24px">無綜合分資料</td></tr>'
 
@@ -1153,7 +1155,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     top1_name  = comp_df2.iloc[0]['name']           if not comp_df2.empty else ''
     top1_score = fn(comp_df2.iloc[0]['_cs'])        if not comp_df2.empty else '-'
 
-# ── 快速瀏覽摘要 ──
+    # ── 快速瀏覽摘要 ──
     def make_chip(sid, name, anchor_id, is_star):
         star_class = ' st' if is_star else ''
         return (f'<a class="chip{star_class}" href="#{anchor_id}">'
@@ -1161,7 +1163,8 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
                 f'<span class="nm">{name}</span>'
                 f'</a>')
 
-comp_chips = ''
+    # FIX 3: comp_chips 縮排對齊（頂格在 export_html 函式內）
+    comp_chips = ''
     for _, r in comp_df2.iterrows():
         sid    = r['stock_id']
         star   = check_star(r)

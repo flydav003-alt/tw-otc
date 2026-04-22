@@ -1,5 +1,5 @@
 """
-上櫃操盤手選股系統 v7.2
+上櫃操盤手選股系統 v7.3
 HTML 修改（對齊台股GOGOGO版本）：
   - 綜合轉強 Top 15、即將起漲 Top 15、強勢確認 Top 10
   - 欄位：收盤價→漲幅%→量比→RSI14→MA28乖離→營收YoY→法人連買（無分數欄）
@@ -575,6 +575,12 @@ def run_strong_filter(price_data, inst_data, fin_data, name_map, industry_map):
             past_60d = ((last.get('close',0)-c60)/c60*100) if c60>0 else 0.0
         else:
             past_60d = 0.0
+
+        # ★ v7.3 新增：60日過熱前置濾（對齊TSE邏輯）
+        # 60日漲幅 > 40% 且 MA28乖離 > 20% → 兩個條件同時成立才排除
+        # 單純乖離大（但60日漲幅未過熱）仍保留，避免誤殺剛啟動的個股
+        if past_60d > 40.0 and ma28_bias > 20.0:
+            continue
 
         candidates.append({
             'stock_id': sid, 'name': name_map.get(sid,sid),

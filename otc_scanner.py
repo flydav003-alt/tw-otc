@@ -1290,7 +1290,7 @@ tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
     強勢確認 <strong>{len(strong_candidates)}</strong> 檔 ｜
     起漲預警 <strong>{len(early_candidates)}</strong> 檔
     &nbsp;·&nbsp;
-    <span style="color:var(--purple)">↗ 點擊代碼開 Yahoo 股市</span>
+    <span style="color:var(--purple)">↗ 點擊代碼開 Yahoo 股市 ↗點擊分析開啟k線指標分析</span>
   </div>
 </div>
 

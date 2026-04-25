@@ -1,3 +1,6 @@
+
+
+
 """
 上櫃操盤手選股系統 v7.3
 HTML 修改（對齊台股GOGOGO版本）：
@@ -59,7 +62,7 @@ pd.set_option('display.max_columns', 30)
 # 區塊 2：設定
 # ============================================================
 
-FINMIND_TOKEN    = os.environ.get("FINMIND_TOKEN", "")
+FINMIND_TOKEN    = os.environ.get("FINMIND_TOKEN", "eyJ0eXAiOiJKV1QiLCJhbGciOiJIUzI1NiJ9.eyJkYXRlIjoiMjAyNi0wNC0wNiAxNTo1OToxMiIsInVzZXJfaWQiOiJjb29sZGF2NyIsImVtYWlsIjoiY29vbGRhdjA0MjFAZ21haWwuY29tIiwiaXAiOiIxMTEuMjQ4LjIwMy4xODQifQ.GIDzJ5raOM45fnGVS4Xc6IB5pCfbMMPMt_7GjUJNfdY")
 TELEGRAM_TOKEN   = os.environ.get("TELEGRAM_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
 GMAIL_USER       = os.environ.get("GMAIL_USER", "")
@@ -1012,9 +1015,9 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
             f'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
             f'</svg></a>'
         )
+    
 
-
-      def kline_link(code, name):
+    def kline_link(code, name):
           KLINE_BASE = "https://flydav003-alt.github.io/k-line/"
           url = f'{KLINE_BASE}?stock={code}'
           return (

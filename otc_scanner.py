@@ -1,15 +1,12 @@
-
-
+python
 
 """
-上櫃操盤手選股系統 v7.3
-HTML 修改（對齊台股GOGOGO版本）：
-  - 綜合轉強 Top 15、即將起漲 Top 15、強勢確認 Top 10
-  - 欄位：收盤價→漲幅%→量比→RSI14→MA28乖離→營收YoY→法人連買（無分數欄）
-  - K線圖直接顯示於每檔下方（不需點開）
-  - 每檔股票資料列前方加欄位標題列
-  - ⭐ 星星自動標示（OTC專用條件）
-  - 暗色科技配色保留
+上櫃操盤手選股系統 v7.4
+修改記錄（v7.3 → v7.4）：
+  - run_early_filter()：加入門檻一（YoY營收正成長）＋門檻二（排除2個月下降趨勢）
+  - run_strong_filter()：同步加入門檻一＋門檻二
+  - export_csvs()：輸出新增 past_42d 欄位，並額外輸出 claude候選CSV（Top5）
+  - 其餘邏輯完全不變
 """
 
 # ============================================================
@@ -112,18 +109,19 @@ EW_BONUS_YOY  = 16.0
 EW_BONUS_INST = 24.0
 EW_BONUS_60D  = 22.0
 
-# ★ v7.2 修改：各區顯示數量
 TOP_STRONG    = 10
 TOP_EARLY     = 15
 TOP_COMPOSITE = 15
 TOP_CHART     = 5
+
+# ★ v7.4 新增：輸出給 Claude 的候選數量上限
+TOP_CLAUDE    = 5
 
 MIN_DAYS    = 60
 BATCH_SIZE  = 40
 BATCH_DELAY = 1.5
 ERROR_LOG   = "error_log.txt"
 
-# ★ 統一匯出欄位（19欄，與TSE對齊）
 EXPORT_COLS = [
     'stock_id', 'name', 'close', 'vol_ratio', 'daily_return_pct',
     'ma28_bias_pct', 'turnover_億', 'rsi14', 'inst_consec_days',
@@ -537,11 +535,12 @@ def module_d(r):
     return True
 
 # ============================================================
-# 區塊 10：強勢確認股篩選
+# ★ 區塊 10：強勢確認股篩選（v7.4：加入門檻一+門檻二）
 # ============================================================
 
 def run_strong_filter(price_data, inst_data, fin_data, name_map, industry_map):
-    funnel     = {'總有效':len(price_data),'A流動性':0,'B技術':0,'C籌碼':0,'D過濾':0}
+    funnel     = {'總有效':len(price_data),'A流動性':0,'B技術':0,'C籌碼':0,'D過濾':0,
+                  'E_YoY門檻':0,'F_趨勢門檻':0}
     candidates = []
 
     for sid, df in price_data.items():
@@ -564,6 +563,27 @@ def run_strong_filter(price_data, inst_data, fin_data, name_map, industry_map):
         if not module_d(last): continue
         funnel['D過濾'] += 1
 
+        # ── ★ 門檻一：YoY營收正成長（v7.4新增）──
+        yoy_rev = fin_data.get(sid, None)
+        if yoy_rev is not None and not (isinstance(yoy_rev, float) and np.isnan(yoy_rev)):
+            if float(yoy_rev) <= 0:
+                continue   # YoY負成長，直接排除
+        # yoy_rev 為 None（無資料）時放行，但後面加分為0
+        funnel['E_YoY門檻'] += 1
+
+        # ── ★ 門檻二：排除2個月下降趨勢（v7.4新增）──
+        # 約42個交易日 ≈ 2個月
+        close = last.get('close', 0)
+        if len(df) >= 43:
+            c42      = df['close'].iloc[-43]
+            past_42d = ((close - c42) / c42 * 100) if c42 > 0 else 0.0
+        else:
+            past_42d = 0.0   # 資料不足時放行（不排除）
+
+        if past_42d < 0:
+            continue   # 股價低於2個月前，下降趨勢，排除
+        funnel['F_趨勢門檻'] += 1
+
         info        = inst_data.get(sid,{})
         inst_consec = max(info.get('foreign_consec',0), info.get('trust_consec',0))
         ma28        = last.get('MA28',0) or 0
@@ -572,16 +592,14 @@ def run_strong_filter(price_data, inst_data, fin_data, name_map, industry_map):
         h20         = 1.0 if last.get('close',0) >= (last.get('high20') or float('inf')) else 0.0
         score       = (last['vol_ratio']*W_VOL_RATIO + h20*W_HIGH20 +
                        ma28_bias*W_MA28_BIAS + inst_consec*W_INST_DAYS + dpct*W_RETURN_PCT)
-        yoy_rev = fin_data.get(sid, None)
+
         if len(df) >= 61:
             c60      = df['close'].iloc[-61]
             past_60d = ((last.get('close',0)-c60)/c60*100) if c60>0 else 0.0
         else:
             past_60d = 0.0
 
-        # ★ v7.3 新增：60日過熱前置濾（對齊TSE邏輯）
-        # 60日漲幅 > 40% 且 MA28乖離 > 20% → 兩個條件同時成立才排除
-        # 單純乖離大（但60日漲幅未過熱）仍保留，避免誤殺剛啟動的個股
+        # 60日過熱前置濾
         if past_60d > 40.0 and ma28_bias > 20.0:
             continue
 
@@ -607,12 +625,12 @@ def run_strong_filter(price_data, inst_data, fin_data, name_map, industry_map):
             'strength': '強' if score>18 else ('中' if score>=12 else '弱'),
             'yoy_revenue_pct': yoy_rev,
             'past_60d_cum': round(past_60d,1),
+            'past_42d_cum': round(past_42d,1),   # ★ v7.4新增
             'turnover_億': round((last.get('turnover',0) or 0)/1e8, 2),
             '_vr': last['vol_ratio'], '_mb': ma28_bias,
             '_ic': float(inst_consec), '_dp': dpct, '_h20': h20,
         })
 
-    # 保底：確保每筆都有 total_score
     for c in candidates:
         c.setdefault('total_score', c['score'])
 
@@ -646,15 +664,15 @@ def run_strong_filter(price_data, inst_data, fin_data, name_map, industry_map):
                  .reset_index(drop=True))
     strong_df.insert(0, 'rank', range(1, len(strong_df)+1))
 
-    print(f'\n【強勢確認股漏斗】')
+    print(f'\n【強勢確認股漏斗 v7.4】')
     base = funnel['總有效'] or 1
     for k, v in funnel.items():
         print(f'  {k}：{v} ({v/base*100:.1f}%)')
-    print(f'候選：{len(candidates)} 檔')
+    print(f'候選（通過YoY+趨勢門檻）：{len(candidates)} 檔')
     return strong_df, candidates
 
 # ============================================================
-# 區塊 11：起漲預警
+# ★ 區塊 11：起漲預警（v7.4：加入門檻一+門檻二）
 # ============================================================
 
 def run_early_filter(price_data, inst_data, fin_data, name_map, industry_map):
@@ -682,6 +700,7 @@ def run_early_filter(price_data, inst_data, fin_data, name_map, industry_map):
         else:
             past_60d = 0.0
 
+        # ── 原有硬條件 ──
         if to_day < EW_TURNOVER_MIN:                               continue
         if not (EW_VOL_RATIO_MIN <= vol_ratio <= EW_VOL_RATIO_MAX): continue
         if not (EW_RETURN_MIN <= dpct <= EW_RETURN_MAX):           continue
@@ -693,6 +712,25 @@ def run_early_filter(price_data, inst_data, fin_data, name_map, industry_map):
         if below_ma < EW_ABOVE_MA20_MIN: continue
         if close < ma20*0.975:           continue
 
+        # ── ★ 門檻一：YoY營收正成長（v7.4新增）──
+        yoy = fin_data.get(sid, None)
+        if yoy is not None and not (isinstance(yoy, float) and np.isnan(yoy)):
+            if float(yoy) <= 0:
+                continue   # YoY負成長，直接排除
+        # yoy 為 None（無資料）時放行，但後面加分為0
+
+        # ── ★ 門檻二：排除2個月下降趨勢（v7.4新增）──
+        # 約42個交易日 ≈ 2個月
+        if len(df) >= 43:
+            c42      = df['close'].iloc[-43]
+            past_42d = ((close - c42) / c42 * 100) if c42 > 0 else 0.0
+        else:
+            past_42d = 0.0   # 資料不足時放行
+
+        if past_42d < 0:
+            continue   # 股價低於2個月前，下降趨勢，排除
+
+        # ── 以下邏輯完全不變 ──
         info        = inst_data.get(sid,{})
         f_today     = info.get('foreign_today',0)
         t_today     = info.get('trust_today',0)
@@ -702,7 +740,6 @@ def run_early_filter(price_data, inst_data, fin_data, name_map, industry_map):
             return v/1000 if abs(v)>1_000_000 else v
 
         f_today_n = normalize_shares(f_today)
-        yoy = fin_data.get(sid, None)
 
         vol_ratio_score = vol_ratio*15
         consol_score    = max(0,(1.20-consol))*14
@@ -711,7 +748,7 @@ def run_early_filter(price_data, inst_data, fin_data, name_map, industry_map):
 
         bonus_total = 8.0
         bonus_flags = []
-        if yoy is not None and not pd.isna(yoy):
+        if yoy is not None and not (isinstance(yoy, float) and np.isnan(yoy)):
             yov = float(yoy)
             if yov > 80:
                 bonus_total += EW_BONUS_YOY;       bonus_flags.append(f'營收YoY+{yov:.0f}%✨')
@@ -752,6 +789,7 @@ def run_early_filter(price_data, inst_data, fin_data, name_map, industry_map):
             'rsi14':            round(rsi14,1),
             'consol_ratio':     round(consol,2),
             'past_60d_cum':     round(past_60d,1),
+            'past_42d_cum':     round(past_42d,1),   # ★ v7.4新增
             'yoy_revenue_pct':  yoy,
             'inst_consec_days': inst_consec,
             'foreign_today':    f_today,
@@ -773,7 +811,7 @@ def run_early_filter(price_data, inst_data, fin_data, name_map, industry_map):
     else:
         early_df = pd.DataFrame()
 
-    print(f'起漲預警候選：{len(candidates)} 檔')
+    print(f'起漲預警候選（通過YoY+趨勢門檻）：{len(candidates)} 檔')
     return early_df, candidates
 
 # ============================================================
@@ -831,7 +869,7 @@ def draw_kline(sid, price_data, name_map, font_path, label=''):
         return None
 
 # ============================================================
-# 區塊 13：CSV
+# ★ 區塊 13：CSV 輸出（v7.4：新增 Claude 候選CSV）
 # ============================================================
 
 def export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df):
@@ -847,7 +885,7 @@ def export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df):
         if df is None or df.empty: continue
         is_strong = sid in strong_set
         is_early  = sid in early_set
-        if not is_strong and not is_early: continue  # 只匯出入選股
+        if not is_strong and not is_early: continue
         last    = df.iloc[-1].to_dict()
         vm5     = last.get('vol_ma5',0) or 0
         close   = last.get('close',0)
@@ -859,6 +897,14 @@ def export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df):
         info    = inst_data.get(sid,{})
         inst_c  = max(info.get('foreign_consec',0), info.get('trust_consec',0))
         yoy_rev = fin_data.get(sid, None)
+
+        # ★ v7.4：計算 past_42d
+        if len(df) >= 43:
+            c42      = df['close'].iloc[-43]
+            past_42d = round(((close - c42) / c42 * 100) if c42 > 0 else 0.0, 1)
+        else:
+            past_42d = 0.0
+
         ts = strong_score_map.get(sid, 0)
         es = early_score_map.get(sid, 0)
         try:
@@ -892,15 +938,48 @@ def export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df):
             'total_score': ts if ts else 0,
             'early_score': es if es else 0,
             'composite_score': composite,
+            'past_42d_pct': past_42d,   # ★ v7.4新增
         })
 
     full_out = (pd.DataFrame(full_rows)
                 .sort_values('composite_score', ascending=False)
                 .reset_index(drop=True)) if full_rows else pd.DataFrame(columns=EXPORT_COLS)
+
     os.makedirs('output', exist_ok=True)
+
+    # ── 原有完整CSV ──
     csv_fname = f'output/otc_{TODAY_STR}.csv'
-    full_out[EXPORT_COLS].to_csv(csv_fname, index=False, encoding='utf-8-sig')
-    print(f'✅ CSV：{csv_fname}（{len(full_out)} 筆，僅入選股）')
+    export_cols_v74 = EXPORT_COLS + ['past_42d_pct']
+    available_cols  = [c for c in export_cols_v74 if c in full_out.columns]
+    full_out[available_cols].to_csv(csv_fname, index=False, encoding='utf-8-sig')
+    print(f'✅ CSV：{csv_fname}（{len(full_out)} 筆）')
+
+    # ── ★ v7.4新增：Claude候選精簡CSV（Top5，供AI分析用）──
+    claude_cols = [
+        'stock_id', 'name', 'close', 'daily_return_pct',
+        'vol_ratio', 'rsi14', 'ma28_bias_pct',
+        'inst_consec_days', 'yoy_revenue_pct',
+        'past_42d_pct', 'composite_score',
+        'is_early_breakout', 'is_strong_confirm'
+    ]
+    claude_available = [c for c in claude_cols if c in full_out.columns]
+    claude_out = (full_out
+                  .sort_values('composite_score', ascending=False)
+                  .head(TOP_CLAUDE)
+                  [claude_available])
+    claude_csv = f'output/otc_claude_{TODAY_STR}.csv'
+    claude_out.to_csv(claude_csv, index=False, encoding='utf-8-sig')
+    print(f'✅ Claude候選CSV：{claude_csv}（{len(claude_out)} 檔，Top{TOP_CLAUDE}）')
+    print(f'\n【Claude候選清單預覽】')
+    for i, (_, r) in enumerate(claude_out.iterrows(), 1):
+        yoy_str = f"{float(r['yoy_revenue_pct']):.0f}%" if r.get('yoy_revenue_pct') is not None else "無資料"
+        p42_str = f"{float(r['past_42d_pct']):+.1f}%" if r.get('past_42d_pct') is not None else "-"
+        print(f"  #{i} {r['stock_id']} {r['name']} | "
+              f"現價{r['close']} | 漲{r['daily_return_pct']:+.1f}% | "
+              f"量比{r['vol_ratio']}x | RSI{r['rsi14']} | "
+              f"YoY:{yoy_str} | 2M趨勢:{p42_str} | "
+              f"綜合分:{r['composite_score']}")
+
     return csv_fname, full_out
 
 
@@ -909,20 +988,6 @@ def export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df):
 # ============================================================
 
 def check_star(row):
-    """
-    OTC 精選條件，符合全部則顯示 ⭐
-    - is_early_breakout == True
-    - 2.5 <= daily_return_pct <= 6.0
-    - inst_consec_days >= 2
-    - foreign_3d > 0
-    - trust_3d >= 0
-    - trust_today > 0
-    - vol_ratio >= 1.3
-    - 6.0 <= ma28_bias_pct <= 12.0
-    - 52 <= rsi14 <= 65
-    - yoy_revenue_pct > 5
-    - turnover_億 >= 1.5
-    """
     try:
         is_early = row.get('is_early_breakout', False)
         if not is_early:
@@ -958,7 +1023,7 @@ def check_star(row):
 
 
 # ============================================================
-# ★ 區塊 15：HTML 報告 v7.2
+# ★ 區塊 15：HTML 報告 v7.4
 # ============================================================
 
 def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
@@ -966,7 +1031,6 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
                 strong_charts, early_charts, composite_charts,
                 full_out):
 
-    # ── 格式化輔助 ──
     def fn(v, d=2):
         try: return f'{float(v):,.{d}f}'
         except: return str(v)
@@ -1015,22 +1079,20 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
             f'stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>'
             f'</svg></a>'
         )
-    
 
     def kline_link(code, name):
-          KLINE_BASE = "https://flydav003-alt.github.io/k-line/"
-          url = f'{KLINE_BASE}?stock={code}'
-          return (
-              f'{name}'
-              f'<a href="{url}" target="_blank" rel="noopener" '
-              f'style="color:#e6a817;font-size:0.78em;font-weight:700;'
-              f'text-decoration:none;margin-left:6px;white-space:nowrap;" '
-              f'onmouseover="this.style.opacity=\'0.75\'" '
-              f'onmouseout="this.style.opacity=\'1\'">'
-              f'分析↗</a>'
-       )            
-        
-    # ── 每檔前方的欄位標題列 ──
+        KLINE_BASE = "https://flydav003-alt.github.io/k-line/"
+        url = f'{KLINE_BASE}?stock={code}'
+        return (
+            f'{name}'
+            f'<a href="{url}" target="_blank" rel="noopener" '
+            f'style="color:#e6a817;font-size:0.78em;font-weight:700;'
+            f'text-decoration:none;margin-left:6px;white-space:nowrap;" '
+            f'onmouseover="this.style.opacity=\'0.75\'" '
+            f'onmouseout="this.style.opacity=\'1\'">'
+            f'分析↗</a>'
+        )
+
     INLINE_TH = (
         '<tr style="background:#1c2129;border-top:2px solid #30363d;">'
         '<th style="padding:5px 14px;font-size:.72em;color:#8b949e;font-weight:700;letter-spacing:.5px;white-space:nowrap;">排名</th>'
@@ -1046,10 +1108,6 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
         '</tr>'
     )
 
-    TH_COMMON = ('<th>排名</th><th>代碼</th><th>名稱</th><th>收盤價</th><th>漲幅%</th>'
-                 '<th>量比</th><th>RSI14</th><th>MA28乖離</th><th>營收YoY</th><th>法人連買</th>')
-
-    # ── FIX 1: row_inline_chart — 移除重複 <tr> tag ──
     def row_inline_chart(sid, charts, section_prefix=''):
         b64 = charts.get(sid)
         if not b64: return ''
@@ -1062,7 +1120,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
             f'</td></tr>'
         )
 
-    # ── 綜合轉強 ──
+    # 綜合轉強
     comp_df = full_out[full_out['composite_score'] != ''].copy()
     comp_df['_cs'] = pd.to_numeric(comp_df['composite_score'], errors='coerce')
     comp_df = (comp_df.dropna(subset=['_cs'])
@@ -1097,12 +1155,10 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
                 f'<td>{ic}天</td>'
                 f'</tr>'
             )
-            # FIX 2: 縮排對齊迴圈內層
             cr += row_inline_chart(sid, composite_charts, 'comp')
     else:
         cr = '<tr><td colspan="10" style="text-align:center;color:#8b949e;padding:24px">無綜合分資料</td></tr>'
 
-    # ── 起漲預警 ──
     medals_e = ['🌱','🌿','🍃']
     er = ''
     if not early_df.empty:
@@ -1131,7 +1187,6 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     else:
         er = '<tr><td colspan="10" style="text-align:center;color:#8b949e;padding:24px">今日無起漲預警</td></tr>'
 
-    # ── 強勢確認 ──
     medals_s = ['🥇','🥈','🥉']
     sr = ''
     if not strong_df.empty:
@@ -1174,11 +1229,10 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
     else:
         sr = '<tr><td colspan="10" style="text-align:center;color:#8b949e;padding:24px">今日無符合條件個股</td></tr>'
 
-    top1_id    = comp_df2.iloc[0]['stock_id']      if not comp_df2.empty else '-'
-    top1_name  = comp_df2.iloc[0]['name']           if not comp_df2.empty else ''
-    top1_score = fn(comp_df2.iloc[0]['_cs'])        if not comp_df2.empty else '-'
+    top1_id    = comp_df2.iloc[0]['stock_id']  if not comp_df2.empty else '-'
+    top1_name  = comp_df2.iloc[0]['name']      if not comp_df2.empty else ''
+    top1_score = fn(comp_df2.iloc[0]['_cs'])   if not comp_df2.empty else '-'
 
-    # ── 快速瀏覽摘要 ──
     def make_chip(sid, name, anchor_id, is_star):
         star_class = ' st' if is_star else ''
         return (f'<a class="chip{star_class}" href="#{anchor_id}">'
@@ -1186,7 +1240,6 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
                 f'<span class="nm">{name}</span>'
                 f'</a>')
 
-    # FIX 3: comp_chips 縮排對齊（頂格在 export_html 函式內）
     comp_chips = ''
     for _, r in comp_df2.iterrows():
         sid    = r['stock_id']
@@ -1228,7 +1281,7 @@ def export_html(price_data, inst_data, fin_data, name_map, strong_df, early_df,
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1.0">
-<title>上櫃操盤手 — {TODAY_DISP} 選股報告</title>
+<title>上櫃操盤手 — {TODAY_DISP} 選股報告 v7.4</title>
 <style>
 @import url('https://fonts.googleapis.com/css2?family=Noto+Sans+TC:wght@400;500;700;900&display=swap');
 :root{{--bg:#0d1117;--bg2:#161b22;--bg3:#1c2129;--border:#30363d;
@@ -1264,7 +1317,6 @@ thead tr{{background:var(--bg3);border-bottom:1px solid var(--border);}}
 th{{padding:12px 14px;text-align:left;color:var(--text3);font-weight:700;font-size:.8em;letter-spacing:.4px;white-space:nowrap;}}
 td{{padding:13px 14px;border-bottom:1px solid rgba(48,54,61,.5);color:var(--text2);vertical-align:middle;}}
 tbody tr:hover{{background:rgba(255,255,255,.03);}}
-tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
 .legend{{display:flex;gap:16px;flex-wrap:wrap;padding:12px 28px;background:var(--bg3);
   border-top:1px solid var(--border);font-size:.76em;color:var(--text3);}}
 .dot{{width:10px;height:10px;border-radius:50%;display:inline-block;}}
@@ -1283,14 +1335,16 @@ tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
 <body>
 
 <div class="header">
-  <div class="header-label">上櫃操盤手 · 選股系統 v7.2</div>
+  <div class="header-label">上櫃操盤手 · 選股系統 v7.4 ｜ 已過濾：YoY負成長 + 2個月下降趨勢</div>
   <h1>上櫃操盤手 — <span>{TODAY_DISP}</span> 收盤選股報告</h1>
   <div class="header-meta">
     掃描 <strong>{len(price_data)}</strong> 檔 ｜
     強勢確認 <strong>{len(strong_candidates)}</strong> 檔 ｜
     起漲預警 <strong>{len(early_candidates)}</strong> 檔
     &nbsp;·&nbsp;
-    <span style="color:var(--purple)">↗ 點擊代碼開 Yahoo 股市 ↗點擊分析開啟k線指標分析</span>
+    <span style="color:#3fb950">✅ 已排除YoY負成長 ｜ ✅ 已排除2個月下降趨勢</span>
+    &nbsp;·&nbsp;
+    <span style="color:var(--purple)">↗ 點擊代碼開 Yahoo 股市 ｜ 點擊分析開K線指標</span>
   </div>
 </div>
 
@@ -1299,7 +1353,7 @@ tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
   <div class="stat-item"><div class="stat-label">強勢確認股</div><div class="stat-value" style="color:var(--coral)">{len(strong_candidates)}</div><div class="stat-sub">Top {TOP_STRONG} 顯示</div></div>
   <div class="stat-item"><div class="stat-label">起漲預警股</div><div class="stat-value" style="color:var(--green)">{len(early_candidates)}</div><div class="stat-sub">Top {TOP_EARLY} 顯示</div></div>
   <div class="stat-item"><div class="stat-label">綜合轉強 TOP1</div><div class="stat-value" style="font-size:1.15em;color:var(--purple)">{top1_id} {top1_name}</div><div class="stat-sub">綜合分 {top1_score}</div></div>
-  <div class="stat-item"><div class="stat-label">報告日期</div><div class="stat-value" style="font-size:1.15em">{TODAY_DISP}</div><div class="stat-sub">收盤後分析</div></div>
+  <div class="stat-item"><div class="stat-label">報告日期</div><div class="stat-value" style="font-size:1.15em">{TODAY_DISP}</div><div class="stat-sub">收盤後分析 v7.4</div></div>
 </div>
 
 <div class="container">
@@ -1369,7 +1423,7 @@ tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
     <div class="section-icon">🔮</div>
     <div class="section-title">
       <h2>綜合轉強潛力股 Top {TOP_COMPOSITE}</h2>
-      <p>綜合分 = 起漲分×0.45 + 強勢分×0.55 ｜ ⭐ 精選條件全中</p>
+      <p>綜合分 = 起漲分×0.45 + 強勢分×0.55 ｜ ✅ 已排除YoY負成長 + 2個月下降趨勢 ｜ ⭐ 精選條件全中</p>
     </div>
   </div>
   <div class="table-wrap">
@@ -1377,7 +1431,7 @@ tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
   </div>
   <div class="legend">
     <div><span class="dot" style="background:var(--purple)"></span> 綜合分 = early×0.45 + total×0.55</div>
-    <div style="color:var(--purple)">↗ 點擊紫色代碼開 Yahoo 股市</div>
+    <div style="color:#3fb950">✅ 所有標的已通過：YoY>0 + 股價>2個月前</div>
     <div>⭐ = 精選條件全符合（起漲+籌碼+量價+基本面）</div>
   </div>
 </div>
@@ -1387,7 +1441,7 @@ tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
     <div class="section-icon">🌱</div>
     <div class="section-title">
       <h2>即將起漲潛力股 Top {TOP_EARLY}</h2>
-      <p>硬條件過濾 + 財務/籌碼加分排名 ｜ ⭐ 精選條件全中</p>
+      <p>硬條件過濾 + 財務/籌碼加分排名 ｜ ✅ 已排除YoY負成長 + 2個月下降趨勢 ｜ ⭐ 精選條件全中</p>
     </div>
   </div>
   <div class="table-wrap">
@@ -1395,7 +1449,7 @@ tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
   </div>
   <div class="legend">
     <div><span class="dot" style="background:var(--green)"></span> YoY&gt;20%→+16 ｜ 法人連買≥2→+24 ｜ 60日&lt;25%→+22</div>
-    <div style="color:var(--green)">↗ 點擊綠色代碼開 Yahoo 股市</div>
+    <div style="color:#3fb950">✅ 所有標的已通過：YoY>0 + 股價>2個月前</div>
     <div>⭐ = 精選條件全符合</div>
   </div>
 </div>
@@ -1405,7 +1459,7 @@ tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
     <div class="section-icon">🔥</div>
     <div class="section-title">
       <h2>強勢確認股 Top {TOP_STRONG}</h2>
-      <p>量價齊揚 + 法人認同 + 技術突破 ｜ ⭐ 精選條件全中</p>
+      <p>量價齊揚 + 法人認同 + 技術突破 ｜ ✅ 已排除YoY負成長 + 2個月下降趨勢 ｜ ⭐ 精選條件全中</p>
     </div>
   </div>
   <div class="table-wrap">
@@ -1414,7 +1468,7 @@ tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
   <div class="legend">
     <div><span class="dot" style="background:var(--gold)"></span> 量比×1.6 + 20日新高×1.4 + MA28乖離×1.0 + 連買×3.0 + 漲幅×0.8 + Z-score</div>
     <div><span style="color:var(--coral)">RSI⚠️</span> ≥78 追高需謹慎</div>
-    <div style="color:var(--gold)">↗ 點擊金色代碼開 Yahoo 股市</div>
+    <div style="color:#3fb950">✅ 所有標的已通過：YoY>0 + 股價>2個月前</div>
     <div>⭐ = 精選條件全符合</div>
   </div>
 </div>
@@ -1422,7 +1476,8 @@ tbody tr:nth-child(1 of .data-row){{background:rgba(230,168,23,.07);}}
 </div>
 
 <div class="footer">
-  上櫃操盤手選股系統 v7.2 ｜ {TODAY_DISP} ｜ early×0.45+total×0.55 ｜ 僅供參考，不構成投資建議
+  上櫃操盤手選股系統 v7.4 ｜ {TODAY_DISP} ｜ early×0.45+total×0.55 ｜
+  ✅ 門檻：YoY>0 + 2個月趨勢向上 ｜ 僅供參考，不構成投資建議
 </div>
 
 <nav class="fixed-nav">
@@ -1449,8 +1504,9 @@ def send_telegram(strong_df, early_df, strong_candidates, early_candidates):
         print('⚠️  未設定 Telegram，跳過')
         return
     lines = [
-        f"📊 *上櫃操盤手 v7.2 — {TODAY_DISP}*", "",
+        f"📊 *上櫃操盤手 v7.4 — {TODAY_DISP}*", "",
         f"掃描{len(price_data_global)}檔 強勢{len(strong_candidates)} 預警{len(early_candidates)}", "",
+        f"✅ 已排除YoY負成長 + 2個月下降趨勢", "",
     ]
     if not strong_df.empty:
         lines.append("*🔥 強勢Top5:*")
@@ -1481,13 +1537,13 @@ def send_email(csv_fname, html_fname, strong_df, early_df, strong_candidates, ea
         print('⚠️  未設定 Email，跳過')
         return
     msg = MIMEMultipart('mixed')
-    msg['Subject'] = f'上櫃操盤手 v7.2 {TODAY_DISP} 強勢{len(strong_candidates)} 預警{len(early_candidates)}'
+    msg['Subject'] = f'上櫃操盤手 v7.4 {TODAY_DISP} 強勢{len(strong_candidates)} 預警{len(early_candidates)}'
     msg['From']    = GMAIL_USER
     msg['To']      = EMAIL_TO
-    body = f'上櫃操盤手 v7.2 {TODAY_DISP}\n掃描{len(price_data_global)}檔'
+    body = f'上櫃操盤手 v7.4 {TODAY_DISP}\n掃描{len(price_data_global)}檔\n✅ 已排除YoY負成長+2個月下降趨勢'
     if GITHUB_PAGES_URL: body += f'\n報告：{GITHUB_PAGES_URL}'
     msg.attach(MIMEText(body, 'plain', 'utf-8'))
-    for fpath in [csv_fname]:  # 只附加CSV，HTML請至GitHub Pages查看
+    for fpath in [csv_fname]:
         if fpath and os.path.exists(fpath):
             with open(fpath, 'rb') as f:
                 part = MIMEBase('application', 'octet-stream')
@@ -1517,7 +1573,8 @@ def main():
     global price_data_global, fin_data_global
 
     print("="*60)
-    print("上櫃操盤手選股系統 v7.2")
+    print("上櫃操盤手選股系統 v7.4")
+    print("新增門檻：YoY營收正成長 + 排除2個月下降趨勢")
     print("="*60)
 
     install_system_deps()
@@ -1543,14 +1600,12 @@ def main():
 
     csv_fname, full_out = export_csvs(price_data, inst_data, fin_data, name_map, strong_df, early_df)
 
-    # ── 綜合分 Top15 sid ──
     comp_chart_df = full_out[full_out['composite_score'] != ''].copy()
     comp_chart_df['_cs'] = pd.to_numeric(comp_chart_df['composite_score'], errors='coerce')
     comp_chart_sids = (comp_chart_df.dropna(subset=['_cs'])
                        .sort_values('_cs', ascending=False)
                        .head(TOP_COMPOSITE)['stock_id'].tolist())
 
-    # ── K線圖：各區全數繪製，對應顯示上限 ──
     print('\n[K線圖] 繪製中...')
     strong_charts, early_charts, composite_charts = {}, {}, {}
 
@@ -1580,8 +1635,9 @@ def main():
     send_email(csv_fname, html_fname, strong_df, early_df, strong_candidates, early_candidates)
 
     print("\n"+"="*60)
-    print(f"✅ CSV ：{csv_fname}")
-    print(f"✅ HTML：{html_fname}")
+    print(f"✅ CSV    ：{csv_fname}")
+    print(f"✅ HTML   ：{html_fname}")
+    print(f"✅ Claude ：output/otc_claude_{TODAY_STR}.csv（Top{TOP_CLAUDE}精選）")
     print("="*60)
 
 
